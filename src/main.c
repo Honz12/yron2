@@ -88,6 +88,17 @@ int cpu_pop_stack_uint32(CpuData* cpu_data, uint32_t* value) {
 
 int tick_cpu(CpuData* cpu_data) {
     uint32_t pc = cpu_data->regs[REG_PC];
+    
+    uint8_t opcode = cpu_data->ram[pc];
+
+    switch (opcode) {
+        case 0x00:
+            cpu_data->regs[REG_PC]++;
+            break;
+        default:
+            printf("Instruction 0x%2x is not supported\n");
+            return 1;
+    }
 }
 
 
@@ -118,6 +129,10 @@ int main() {
     for (int i = 0; i < NUM_REGS; i++)
     {
         cpu_data->regs[i] = 0;
+    }
+
+    while (1) {
+        if (tick_cpu(cpu_data)) break;
     }
 
     free(cpu_data->ram);
