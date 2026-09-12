@@ -258,7 +258,50 @@ int tick_cpu(CpuData* cpu_data, bool debug) {
             }
             break;
 
-        case 
+        case 0x18: // LDP8
+            {
+                cpu_data->regs[REG_PC] += 3;
+
+                uint8_t reg = cpu_data->ram[pc + 1];
+                uint8_t addr_reg = cpu_data->ram[pc + 2];
+
+                uint32_t addr = cpu_get_reg(cpu_data, addr_reg);
+
+                cpu_set_reg(cpu_data, reg, cpu_data->ram[addr]);
+            }
+            break;
+
+        case 0x19: // LDP16
+            {
+                cpu_data->regs[REG_PC] += 3;
+
+                uint8_t reg = cpu_data->ram[pc + 1];
+                uint8_t addr_reg = cpu_data->ram[pc + 2];
+
+                uint32_t addr = cpu_get_reg(cpu_data, addr_reg);
+
+                cpu_set_reg(cpu_data, reg,
+                    cpu_data->ram[addr] | (cpu_data->ram[addr + 1] << 8)
+                );
+            }
+            break;
+        
+        case 0x1a: // LDP32
+            {
+                cpu_data->regs[REG_PC] += 3;
+
+                uint8_t reg = cpu_data->ram[pc + 1];
+                uint8_t addr_reg = cpu_data->ram[pc + 2];
+
+                uint32_t addr = cpu_get_reg(cpu_data, addr_reg);
+
+                cpu_set_reg(cpu_data, reg,
+                    cpu_data->ram[addr] | (cpu_data->ram[addr + 1] << 8) |
+                    (cpu_data->ram[addr + 2] << 16) | (cpu_data->ram[addr + 3] << 24)
+                );
+            }
+            break;
+            
         default:
             printf("Instruction 0x%02x is not supported\n", opcode);
             cpu_data->regs[REG_PC]++;
