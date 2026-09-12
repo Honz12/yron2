@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 
 #define NUM_REGS 32
@@ -86,19 +87,184 @@ int cpu_pop_stack_uint32(CpuData* cpu_data, uint32_t* value) {
     return 0;
 }
 
-int tick_cpu(CpuData* cpu_data) {
+uint32_t cpu_get_reg(CpuData* cpu_data, uint8_t reg) {
+    if (reg < NUM_REGS) {
+        return cpu_data->regs[(int)reg];
+    }
+}
+
+void cpu_set_reg(CpuData* cpu_data, uint8_t reg, uint32_t value) {
+    if (reg < NUM_REGS) {
+        cpu_data->regs[(int)reg] = value;
+    }
+}
+
+int tick_cpu(CpuData* cpu_data, bool debug) {
+    if (cpu_data->regs[REG_PC] > cpu_data->ram_size) {
+        cpu_data->regs[REG_PC] = 0;
+    }
+
     uint32_t pc = cpu_data->regs[REG_PC];
     
     uint8_t opcode = cpu_data->ram[pc];
 
+    if (debug) printf("0x%08x: 0x%02x\n", pc, opcode);
+
     switch (opcode) {
-        case 0x00:
+        case 0x00: // NOP
             cpu_data->regs[REG_PC]++;
             break;
+        
+        // free space
+
+        case 0x08: // PUSH8
+            {
+                cpu_data->regs[REG_PC] += 2;
+
+                uint8_t reg = cpu_data->ram[pc + 1];
+                cpu_push_stack_uint8(cpu_data, cpu_get_reg(cpu_data, reg));
+            }
+            break;
+
+        case 0x09: // PUSH16
+            {
+                cpu_data->regs[REG_PC] += 2;
+
+                uint8_t reg = cpu_data->ram[pc + 1];
+                cpu_push_stack_uint16(cpu_data, cpu_get_reg(cpu_data, reg));
+            }
+            break;
+
+        case 0x0a: // PUSH32
+            {
+                cpu_data->regs[REG_PC] += 2;
+
+                uint8_t reg = cpu_data->ram[pc + 1];
+                cpu_push_stack_uint32(cpu_data, cpu_get_reg(cpu_data, reg));
+            }
+            break;
+
+        case 0x0b: // POP8
+            {
+                cpu_data->regs[REG_PC] += 2;
+
+                uint8_t reg = cpu_data->ram[pc + 1];
+                uint32_t val;
+                cpu_pop_stack_uint8(cpu_data, &val);
+            }
+            break;
+
+        case 0x0c: // POP16
+            {
+                cpu_data->regs[REG_PC] += 2;
+
+                uint8_t reg = cpu_data->ram[pc + 1];
+                uint32_t val;
+                cpu_pop_stack_uint16(cpu_data, &val);
+            }
+            break;
+
+        case 0x0d: // POP32
+            {
+                cpu_data->regs[REG_PC] += 2;
+
+                uint8_t reg = cpu_data->ram[pc + 1];
+                uint32_t val;
+                cpu_pop_stack_uint32(cpu_data, &val);
+            }
+            break;
+        
+        case 0x10: // LDI8
+            {
+                cpu_data->regs[REG_PC] += 3;
+
+                uint8_t reg = cpu_data->ram[pc + 1];
+                uint8_t value = cpu_data->ram[pc + 2];
+
+                cpu_set_reg(cpu_data, reg, value);
+            }
+            break;
+        
+        case 0x11: // LDI16
+            {
+                cpu_data->regs[REG_PC] += 4;
+
+                uint8_t reg = cpu_data->ram[pc + 1];
+                uint8_t value = cpu_data->ram[pc + 2];
+                value |= cpu_data->ram[pc + 3] << 8;
+
+                cpu_set_reg(cpu_data, reg, value);
+            }
+            break;
+        
+        case 0x12: // LDI32
+            {
+                cpu_data->regs[REG_PC] += 6;
+
+                uint8_t reg = cpu_data->ram[pc + 1];
+                uint8_t value = cpu_data->ram[pc + 2];
+                value |= cpu_data->ram[pc + 3] << 8;
+                value |= cpu_data->ram[pc + 4] << 16;
+                value |= cpu_data->ram[pc + 5] << 24;
+
+                cpu_set_reg(cpu_data, reg, value);
+            }
+            break;
+        
+        case 0x14: // LD8
+            {
+                cpu_data->regs[REG_PC] += 6;
+
+                uint8_t reg = cpu_data->ram[pc + 1];
+                uint8_t addr = cpu_data->ram[pc + 2];
+                addr |= cpu_data->ram[pc + 3] << 8;
+                addr |= cpu_data->ram[pc + 4] << 16;
+                addr |= cpu_data->ram[pc + 5] << 24;
+
+                cpu_set_reg(cpu_data, reg, cpu_data->ram[addr]);
+            }
+            break;
+        
+        case 0x15: // LD16
+            {
+                cpu_data->regs[REG_PC] += 6;
+
+                uint8_t reg = cpu_data->ram[pc + 1];
+                uint8_t addr = cpu_data->ram[pc + 2];
+                addr |= cpu_data->ram[pc + 3] << 8;
+                addr |= cpu_data->ram[pc + 4] << 16;
+                addr |= cpu_data->ram[pc + 5] << 24;
+
+                cpu_set_reg(cpu_data, reg,
+                    cpu_data->ram[addr] | (cpu_data->ram[addr + 1] << 8)
+                );
+            }
+            break;
+        
+        case 0x16: // LD32
+            {
+                cpu_data->regs[REG_PC] += 6;
+
+                uint8_t reg = cpu_data->ram[pc + 1];
+                uint8_t addr = cpu_data->ram[pc + 2];
+                addr |= cpu_data->ram[pc + 3] << 8;
+                addr |= cpu_data->ram[pc + 4] << 16;
+                addr |= cpu_data->ram[pc + 5] << 24;
+
+                cpu_set_reg(cpu_data, reg,
+                    cpu_data->ram[addr] | (cpu_data->ram[addr + 1] << 8) |
+                    (cpu_data->ram[addr + 2] << 16) | (cpu_data->ram[addr + 3] << 24)
+                );
+            }
+            break;
+
+        case 
         default:
-            printf("Instruction 0x%2x is not supported\n");
+            printf("Instruction 0x%02x is not supported\n", opcode);
+            cpu_data->regs[REG_PC]++;
             return 1;
     }
+    return 0;
 }
 
 
@@ -115,7 +281,7 @@ int main() {
     printf("Allocated CpuData struct\n");
     
     // 64 KiB of RAM, for now
-    cpu_data->ram_size = 64 * 1024;
+    cpu_data->ram_size = 1024 * 1024;
     
     cpu_data->ram = malloc(cpu_data->ram_size);
 
@@ -131,8 +297,8 @@ int main() {
         cpu_data->regs[i] = 0;
     }
 
-    while (1) {
-        if (tick_cpu(cpu_data)) break;
+    while (true) {
+        if ("%d\n", tick_cpu(cpu_data, false)) break;
     }
 
     free(cpu_data->ram);
