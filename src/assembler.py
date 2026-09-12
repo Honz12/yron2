@@ -57,6 +57,16 @@ INST_FORMATS = {
     "DIVS":     InstructionData(0x29, [IA_1B, IA_1B, IA_1B]),
     "MOD":      InstructionData(0x2a, [IA_1B, IA_1B, IA_1B]),
     "MODS":     InstructionData(0x2b, [IA_1B, IA_1B, IA_1B]),
+    "INC":      InstructionData(0x2c, [IA_1B]),
+    "DEC":      InstructionData(0x2d, [IA_1B]),
+
+    "AND":      InstructionData(0x30, [IA_1B, IA_1B, IA_1B]),
+    "NAND":     InstructionData(0x31, [IA_1B, IA_1B, IA_1B]),
+    "OR":       InstructionData(0x32, [IA_1B, IA_1B, IA_1B]),
+    "NOR":      InstructionData(0x33, [IA_1B, IA_1B, IA_1B]),
+    "XOR":      InstructionData(0x34, [IA_1B, IA_1B, IA_1B]),
+
+    "JMP":      InstructionData(0x40, [IA_4B]),
 }
 
 @dataclass

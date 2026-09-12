@@ -516,6 +516,101 @@ int tick_cpu(CpuData* cpu_data, bool debug) {
                 );
             }
             break;
+        
+        case 0x2c: // INC
+            {
+                cpu_data->regs[REG_PC] += 2;
+
+                uint8_t reg = cpu_data->ram[pc + 1];
+
+                if (reg < NUM_REGS) cpu_data->regs[reg]++;
+            }
+            break;
+        
+        case 0x2d: // DEC
+            {
+                cpu_data->regs[REG_PC] += 2;
+
+                uint8_t reg = cpu_data->ram[pc + 1];
+
+                if (reg < NUM_REGS) cpu_data->regs[reg]--;
+            }
+            break;
+        
+        case 0x30: // AND
+            {
+                cpu_data->regs[REG_PC] += 4;
+
+                uint8_t reg_a = cpu_data->ram[pc + 1];
+                uint8_t reg_b = cpu_data->ram[pc + 2];
+                uint8_t reg_str = cpu_data->ram[pc + 3];
+
+                cpu_set_reg(
+                    cpu_data, reg_str,
+                    cpu_get_reg(cpu_data, reg_a) & cpu_get_reg(cpu_data, reg_b)
+                );
+            }
+            break;
+        
+        case 0x31: // NAND
+            {
+                cpu_data->regs[REG_PC] += 4;
+
+                uint8_t reg_a = cpu_data->ram[pc + 1];
+                uint8_t reg_b = cpu_data->ram[pc + 2];
+                uint8_t reg_str = cpu_data->ram[pc + 3];
+
+                cpu_set_reg(
+                    cpu_data, reg_str,
+                    ~(cpu_get_reg(cpu_data, reg_a) & cpu_get_reg(cpu_data, reg_b))
+                );
+            }
+            break;
+        
+        case 0x32: // OR
+            {
+                cpu_data->regs[REG_PC] += 4;
+
+                uint8_t reg_a = cpu_data->ram[pc + 1];
+                uint8_t reg_b = cpu_data->ram[pc + 2];
+                uint8_t reg_str = cpu_data->ram[pc + 3];
+
+                cpu_set_reg(
+                    cpu_data, reg_str,
+                    cpu_get_reg(cpu_data, reg_a) | cpu_get_reg(cpu_data, reg_b)
+                );
+            }
+            break;
+        
+        case 0x33: // NOR
+            {
+                cpu_data->regs[REG_PC] += 4;
+
+                uint8_t reg_a = cpu_data->ram[pc + 1];
+                uint8_t reg_b = cpu_data->ram[pc + 2];
+                uint8_t reg_str = cpu_data->ram[pc + 3];
+
+                cpu_set_reg(
+                    cpu_data, reg_str,
+                    ~(cpu_get_reg(cpu_data, reg_a) | cpu_get_reg(cpu_data, reg_b))
+                );
+            }
+            break;
+        
+        case 0x34: // XOR
+            {
+                cpu_data->regs[REG_PC] += 4;
+
+                uint8_t reg_a = cpu_data->ram[pc + 1];
+                uint8_t reg_b = cpu_data->ram[pc + 2];
+                uint8_t reg_str = cpu_data->ram[pc + 3];
+
+                cpu_set_reg(
+                    cpu_data, reg_str,
+                    cpu_get_reg(cpu_data, reg_a) ^ cpu_get_reg(cpu_data, reg_b)
+                );
+            }
+            break;
 
         default:
             printf("Instruction 0x%02x is not supported\n", opcode);
