@@ -8,10 +8,12 @@
 #define NUM_REGS 32
 #define REG_PC 0
 #define REG_SP 1
+#define INT_TABLE_START (uint32_t)1024
+#define INT_TABLE_SIZE (uint32_t)256 // 256 * 4 = 1024
 
 typedef struct {
     uint32_t regs[NUM_REGS];
-    uint8_t* ram;
+    uint8_t *ram;
     uint32_t ram_size;
 } CpuData;
 
@@ -87,7 +89,7 @@ void update_devices(DevicesData *devices_data) {
 }
 
 
-int cpu_push_stack_uint8(CpuData* cpu_data, uint8_t value) {
+int cpu_push_stack_uint8(CpuData *cpu_data, uint8_t value) {
     uint32_t sp = cpu_data->regs[REG_SP];
 
     sp--; // Make it so stack won't overrite start position
@@ -99,14 +101,14 @@ int cpu_push_stack_uint8(CpuData* cpu_data, uint8_t value) {
     cpu_data->ram[sp] = value;
 }
 
-int cpu_push_stack_uint16(CpuData* cpu_data, uint16_t value) {
+int cpu_push_stack_uint16(CpuData *cpu_data, uint16_t value) {
     uint32_t sp = cpu_data->regs[REG_SP];
 
     if (cpu_push_stack_uint8(cpu_data, value)) return 1;
     if (cpu_push_stack_uint8(cpu_data, value >> 8)) return 1;
 }
 
-int cpu_push_stack_uint32(CpuData* cpu_data, uint32_t value) {
+int cpu_push_stack_uint32(CpuData *cpu_data, uint32_t value) {
     uint32_t sp = cpu_data->regs[REG_SP];
 
     if (cpu_push_stack_uint8(cpu_data, value)) return 1;
@@ -115,7 +117,7 @@ int cpu_push_stack_uint32(CpuData* cpu_data, uint32_t value) {
     if (cpu_push_stack_uint8(cpu_data, value >> 24)) return 1;
 }
 
-int cpu_pop_stack_uint8(CpuData* cpu_data, uint8_t* value) {
+int cpu_pop_stack_uint8(CpuData *cpu_data, uint8_t *value) {
     uint32_t sp = cpu_data->regs[REG_SP];
 
     if (sp >= cpu_data->ram_size) {
@@ -129,7 +131,7 @@ int cpu_pop_stack_uint8(CpuData* cpu_data, uint8_t* value) {
     return 0;
 }
 
-int cpu_pop_stack_uint16(CpuData* cpu_data, uint16_t* value) {
+int cpu_pop_stack_uint16(CpuData *cpu_data, uint16_t *value) {
     uint8_t low = 0;
     uint8_t high = 0;
 
@@ -140,7 +142,7 @@ int cpu_pop_stack_uint16(CpuData* cpu_data, uint16_t* value) {
     return 0;
 }
 
-int cpu_pop_stack_uint32(CpuData* cpu_data, uint32_t* value) {
+int cpu_pop_stack_uint32(CpuData *cpu_data, uint32_t *value) {
     uint8_t b0 = 0;
     uint8_t b1 = 0;
     uint8_t b2 = 0;
@@ -159,19 +161,33 @@ int cpu_pop_stack_uint32(CpuData* cpu_data, uint32_t* value) {
     return 0;
 }
 
-uint32_t cpu_get_reg(CpuData* cpu_data, uint8_t reg) {
+uint32_t cpu_get_reg(CpuData *cpu_data, uint8_t reg) {
     if (reg < NUM_REGS) {
         return cpu_data->regs[(int)reg];
     }
 }
 
-void cpu_set_reg(CpuData* cpu_data, uint8_t reg, uint32_t value) {
+void cpu_set_reg(CpuData *cpu_data, uint8_t reg, uint32_t value) {
     if (reg < NUM_REGS) {
         cpu_data->regs[(int)reg] = value;
     }
 }
 
-int tick_cpu(CpuData* cpu_data, DevicesData* devices_data, bool debug) {
+int cpu_make_interrupt(CpuData *cpu_data, uint8_t value) {
+    cpu_push_stack_uint32(cpu_data, cpu_data->regs[REG_PC]);
+
+    if (value < INT_TABLE_SIZE) {
+        uint32_t int_field_start = INT_TABLE_START + value * 4;
+        uint32_t int_address = cpu_data->ram[int_field_start] | (cpu_data->ram[int_field_start + 1] << 8) | (cpu_data->ram[int_field_start + 2] << 16) | (cpu_data->ram[int_field_start + 3] << 24);
+
+        cpu_data->regs[REG_PC] = int_address;
+    }
+    else {
+        printf("INVALID INTERRUPT 0x%02x\n", value);
+    }
+}
+
+int tick_cpu(CpuData *cpu_data, DevicesData *devices_data, bool debug) {
     if (cpu_data->regs[REG_PC] > cpu_data->ram_size) {
         cpu_data->regs[REG_PC] = 0;
     }
@@ -185,6 +201,41 @@ int tick_cpu(CpuData* cpu_data, DevicesData* devices_data, bool debug) {
     switch (opcode) {
         case 0x00: // NOP
             cpu_data->regs[REG_PC]++;
+            break;
+
+        case 0x01: // CALL
+            {
+                cpu_data->regs[REG_PC] += 5;
+                
+                uint32_t value = cpu_data->ram[pc + 1];
+                value |= cpu_data->ram[pc + 2] << 8;
+                value |= cpu_data->ram[pc + 3] << 16;
+                value |= cpu_data->ram[pc + 4] << 24;
+
+                cpu_push_stack_uint32(cpu_data, cpu_data->regs[REG_PC]);
+
+                cpu_data->regs[REG_PC] = value;
+            }
+            break;
+        
+        case 0x02: // RET
+            {
+                uint32_t jump;
+
+                cpu_pop_stack_uint32(cpu_data, &jump);
+
+                cpu_data->regs[REG_PC] = jump;
+            }
+            break;
+
+        case 0x03: // INT
+            {
+                cpu_data->regs[REG_PC] += 2;
+
+                uint8_t value = cpu_data->ram[pc + 1];
+
+                return cpu_make_interrupt(cpu_data, value);
+            }
             break;
         
         // free space
@@ -836,7 +887,7 @@ int tick_cpu(CpuData* cpu_data, DevicesData* devices_data, bool debug) {
 int main() {
     printf("YRON2\n");
 
-    CpuData* cpu_data = malloc(sizeof(CpuData));
+    CpuData *cpu_data = malloc(sizeof(CpuData));
 
     if (cpu_data == 0)
     {

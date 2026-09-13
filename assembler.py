@@ -1,14 +1,17 @@
+#!/bin/python3
 from dataclasses import dataclass
 from typing import Any
 
-
-OUTPUT_SIZE = 8 * 1024
-
 TT_CONST = "const"
-TT_OPCODE = "opcode"
+TT_INST = "inst"
 TT_STRING = "string"
-TT_LABEL = "label"
+TT_IDEN = "iden"
 TT_LDEF = "ldef"
+
+TT_DIR_STR = "dir-str"
+TT_DIR_DUMP8 = "dir-dump8"
+TT_DIR_DUMP16 = "dir-dump16"
+TT_DIR_DUMP32 = "dir-dump32"
 
 IA_1B = "1 byte"
 IA_2B = "2 bytes"
@@ -21,6 +24,10 @@ class InstructionData:
 
 INST_FORMATS = {
     "NOP":      InstructionData(0x00, []),
+
+    "CALL":     InstructionData(0x01, [IA_4B]),
+    "RET":      InstructionData(0x02, []),
+    "INT":      InstructionData(0x03, [IA_1B]),
 
     "PUSH8":    InstructionData(0x08, [IA_1B]),
     "PUSH16":   InstructionData(0x09, [IA_1B]),
@@ -73,11 +80,24 @@ INST_FORMATS = {
     "LTE":      InstructionData(0x44, [IA_1B, IA_1B, IA_1B]),
 
     "JMP":      InstructionData(0x48, [IA_4B]),
-    "JZ":       InstructionData(0x49, [IA_4B], [IA_1B]),
-    "JNZ":      InstructionData(0x4a, [IA_4B], [IA_1B]),
+    "JZ":       InstructionData(0x49, [IA_4B, IA_1B]),
+    "JNZ":      InstructionData(0x4a, [IA_4B, IA_1B]),
 
     "SND":      InstructionData(0x50, [IA_1B, IA_1B]),
     "RCV":      InstructionData(0x51, [IA_1B, IA_1B]),
+}
+
+DIRECTIVES = {
+    "str": TT_DIR_STR,
+
+    "d8": TT_DIR_DUMP8,
+    "dump8": TT_DIR_DUMP8,
+
+    "d16": TT_DIR_DUMP16,
+    "dump16": TT_DIR_DUMP16,
+
+    "d32": TT_DIR_DUMP32,
+    "dump32": TT_DIR_DUMP32,
 }
 
 @dataclass
@@ -85,7 +105,14 @@ class Token:
     t: str
     v: Any
 
-class Parser:
+DIGITS = "0123456789"
+HEX_CHARS = DIGITS + "abcdefABCDEF"
+BIN_CHARS = "01"
+OCT_CHARS = "01234567"
+ALPHA = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_"
+ALNUM = ALPHA + DIGITS
+
+class Lexer:
     def __init__(self, code: str):
         self.code = code
         self.idx = -1
@@ -105,4 +132,269 @@ class Parser:
         tokens: list[Token] = []
 
         while self.c is not None:
-            pass
+            if self.c == ";":
+                while self.c is not None and self.c != "\n":
+                    self.advance()
+            elif self.c in " \n\t":
+                self.advance()
+            elif self.c in DIGITS:
+                tokens.append(self.get_int())
+            elif self.c in ALPHA:
+                tokens.append(self.get_iden())
+            elif self.c == '"':
+                tokens.append(self.get_string())
+
+        return tokens
+
+    def get_int(self):
+        base = 10
+        allowed = DIGITS
+        str_repr = ""
+
+        if self.c == "0":
+            self.advance()
+
+            if self.c == "x":
+                self.advance()
+                base = 16
+                allowed = HEX_CHARS
+
+            elif self.c == "b":
+                self.advance()
+                base = 2
+                allowed = BIN_CHARS
+
+            elif self.c == "o":
+                self.advance()
+                base = 8
+                allowed = OCT_CHARS
+
+            else:
+                str_repr = "0"
+
+        while self.c is not None:
+            if self.c not in allowed:
+                break
+
+            str_repr += self.c
+            self.advance()
+
+        return Token(TT_CONST, int(str_repr, base))
+
+    def get_iden(self):
+        str_repr = ""
+
+        while self.c is not None:
+            if self.c not in ALNUM:
+                break
+
+            str_repr += self.c
+            self.advance()
+
+        if str_repr.upper() in INST_FORMATS:
+            return Token(TT_INST, str_repr.upper())
+        elif str_repr.lower() in DIRECTIVES:
+            return Token(DIRECTIVES[str_repr.lower()], None)
+        elif self.c == ":":
+            self.advance()
+            return Token(TT_LDEF, str_repr)
+        else:
+            return Token(TT_IDEN, str_repr)
+
+    def get_string(self):
+        self.advance()
+        chars = ""
+        
+        while self.c is not None:
+            if self.c == '"':
+                self.advance()
+                break
+            elif self.c == "\\":
+                self.advance()
+                match self.c:
+                    case "\\":
+                        chars += "\\"
+                    case "n":
+                        chars += "\n"
+                    case "t":
+                        chars += "\t"
+                    case "r":
+                        chars += "\r"
+                    case "a":
+                        chars += "\a"
+                self.advance()
+            else:
+                chars += self.c
+                self.advance()
+
+        return Token(TT_STRING, chars)
+
+class CodeGenerator:
+    def __init__(self, tokens: list[Token]):
+        self.tokens = tokens
+        self.i = -1
+        self.t = None
+
+        self.advance()
+
+    def advance(self):
+        self.i += 1
+
+        if self.i < len(self.tokens):
+            self.t = self.tokens[self.i]
+        else:
+            self.t = None
+
+    @staticmethod
+    def int_to_2bytes(i: int):
+        return [i % 256, (i >> 8) % 256]
+
+    @staticmethod
+    def int_to_4bytes(i: int):
+        return [i % 256, (i >> 8) % 256, (i >> 16) % 256, (i >> 24) % 256]
+
+    def get_bytes(self):
+        @dataclass
+        class ValuePostReplacement:
+            address: int
+            size: int
+            name: str
+
+        out: list[int] = []
+        names: dict[str, int] = {}
+        value_post_replacements: list[ValuePostReplacement] = []
+
+        print("-" * 50)
+
+        while self.t != None:
+            if self.t.t == TT_LDEF:
+                print(f"NEW LABEL {self.t.v} AT {len(out)}")
+                names[self.t.v] = len(out)
+                self.advance()
+            if self.t.t == TT_INST:
+                inst_tok = self.t
+
+                self.advance()
+
+                inst_data = INST_FORMATS[inst_tok.v]
+                print(inst_tok.v, "-", inst_data)
+
+                out.append(inst_data.opcode)
+
+                for arg_req in inst_data.args:
+                    if self.t is None:
+                        print(f"Expected argument after {(inst_tok.v)}")
+                        return
+                    elif self.t.t == TT_CONST:
+                        if arg_req == IA_1B:
+                            out.append(self.t.v % 256)
+                        if arg_req == IA_2B:
+                            out += self.int_to_2bytes(self.t.v)
+                        if arg_req == IA_4B:
+                            out += self.int_to_4bytes(self.t.v)
+
+                        self.advance()
+                    elif self.t.t == TT_IDEN:
+                        if arg_req == IA_1B:
+                            value_post_replacements.append(ValuePostReplacement(len(out), 1, self.t.v))
+                            out += [0xFF]
+                        if arg_req == IA_2B:
+                            value_post_replacements.append(ValuePostReplacement(len(out), 2, self.t.v))
+                            out += [0xFF, 0xFF]
+                        if arg_req == IA_4B:
+                            value_post_replacements.append(ValuePostReplacement(len(out), 4, self.t.v))
+                            out += [0xFF, 0xFF, 0xFF, 0xFF]
+
+                        self.advance()
+                    else:
+                        print(f"Instrution argument can't be type {repr(self.t.t)}")
+                        return
+
+                self.advance()
+            elif self.t.t == TT_DIR_DUMP8:
+                self.advance()
+
+                if self.t is None:
+                    print("Expected constant or identifier after DUMP8 (D8)")
+                    return
+                
+                if self.t.t == TT_CONST:
+                    out.append(self.t.v % 256)
+                self.advance()
+            elif self.t.t == TT_DIR_DUMP16:
+                self.advance()
+
+                if self.t is None:
+                    print("Expected constant or identifier after DUMP16 (D16)")
+                    return
+
+                if self.t.t == TT_CONST:
+                    out += self.int_to_2bytes(self.t.v)
+                self.advance()
+            elif self.t.t == TT_DIR_DUMP32:
+                self.advance()
+
+                if self.t is None:
+                    print("Expected constant or identifier after DUMP32 (D32)")
+                    return
+
+                if self.t.t == TT_CONST:
+                    out += self.int_to_4bytes(self.t.v)
+                self.advance()
+            else:
+                print(f"UNKNOWN TOKEN {repr(self.t.t)}:{repr(self.t.v)}")
+                self.advance()
+
+        print("-" * 50)
+
+        return bytes(out)
+
+if __name__ == "__main__":
+    from sys import argv
+    args = argv[1:]
+
+    input_files = []
+    output_file = "out.bin"
+
+    setting_out = False
+
+    for a in args:
+        if setting_out:
+            output_file = a
+        elif a == "-o":
+            setting_out = True
+        else:
+            input_files.append(a)
+
+    print(f"Input files: {", ".join(input_files)}")
+    print(f"Output file: {output_file}")
+
+    input_text: str = ""
+
+    for ifile in input_files:
+        try:
+            with open(ifile, "r") as f:
+                cont = f.read()
+                input_text += f"; {'-' * 50}\n; FILE {ifile}\n; {'-' * 50}\n" + cont + "\n"
+            print(f"Opened file {ifile}, ({cont.count("\n") + 1} lines)")
+        except Exception as e:
+            print(f"Failed to open file {ifile}")
+            print(e)
+
+    print(f"\x1b[90m{input_text}\x1b[0m")
+
+    lexer = Lexer(input_text)
+    tokens = lexer.get_tokens()
+
+    print(", ".join(
+        map(
+            lambda a: str(a),
+            tokens
+        )
+    ))
+
+    code_gen = CodeGenerator(tokens)
+    out = code_gen.get_bytes()
+
+    with open(output_file, "wb") as of:
+        of.write(out)
