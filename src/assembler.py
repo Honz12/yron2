@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Any
 
 
-OUTPUT_SIZE = 42 * 1024
+OUTPUT_SIZE = 8 * 1024
 
 TT_CONST = "const"
 TT_OPCODE = "opcode"
@@ -66,7 +66,18 @@ INST_FORMATS = {
     "NOR":      InstructionData(0x33, [IA_1B, IA_1B, IA_1B]),
     "XOR":      InstructionData(0x34, [IA_1B, IA_1B, IA_1B]),
 
-    "JMP":      InstructionData(0x40, [IA_4B]),
+    "EQ":       InstructionData(0x40, [IA_1B, IA_1B, IA_1B]),
+    "GT":       InstructionData(0x41, [IA_1B, IA_1B, IA_1B]),
+    "GTE":      InstructionData(0x42, [IA_1B, IA_1B, IA_1B]),
+    "LT":       InstructionData(0x43, [IA_1B, IA_1B, IA_1B]),
+    "LTE":      InstructionData(0x44, [IA_1B, IA_1B, IA_1B]),
+
+    "JMP":      InstructionData(0x48, [IA_4B]),
+    "JZ":       InstructionData(0x49, [IA_4B], [IA_1B]),
+    "JNZ":      InstructionData(0x4a, [IA_4B], [IA_1B]),
+
+    "SND":      InstructionData(0x50, [IA_1B, IA_1B]),
+    "RCV":      InstructionData(0x51, [IA_1B, IA_1B]),
 }
 
 @dataclass
@@ -78,7 +89,7 @@ class Parser:
     def __init__(self, code: str):
         self.code = code
         self.idx = -1
-        self.char = None
+        self.c = None
 
         self.advance()
 
@@ -93,4 +104,5 @@ class Parser:
     def get_tokens(self):
         tokens: list[Token] = []
 
-        
+        while self.c is not None:
+            pass

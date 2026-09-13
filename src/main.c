@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include "input.c"
 
 
 #define NUM_REGS 32
@@ -13,6 +14,77 @@ typedef struct {
     uint8_t* ram;
     uint32_t ram_size;
 } CpuData;
+
+typedef struct {
+    uint32_t buffered_input;
+} TerminalIoDeviceData;
+
+typedef struct {
+    TerminalIoDeviceData *terminal_io_device_data;
+} DevicesData;
+
+
+int init_devices_data(DevicesData *devices_data) {
+    devices_data->terminal_io_device_data = malloc(sizeof(TerminalIoDeviceData));
+
+    if (devices_data->terminal_io_device_data == 0) {
+        printf("FAILED TO ALLOCATE TerminalIoDeviceData STRUCT\n");
+        return 1;
+    }
+
+    return 0;
+}
+
+
+void snd_to_device(DevicesData *devices_data, uint32_t port, uint32_t msg_reg) {
+    switch (port)
+    {
+        case 0: // NULL device
+            break;
+    
+        case 1: // Terminal IO device
+            break;
+        
+        default:
+            break;
+    }
+}
+
+
+uint32_t rcv_from_device(DevicesData *devices_data, uint32_t port) {
+    switch (port)
+    {
+        case 0: // NULL device
+            break;
+        
+        case 1: // Terminal IO device
+            {
+                uint32_t input = devices_data->terminal_io_device_data->buffered_input;
+                devices_data->terminal_io_device_data->buffered_input = 0;
+                return input;
+            }
+            break;
+        
+        default:
+            break;
+    }
+    return 0;
+}
+
+
+void update_devices(DevicesData *devices_data) {
+    // NULL device
+    { }
+
+    // Terminal IO device
+    {
+        uint32_t input = get_input_nb();
+
+        if (input) {
+            devices_data->terminal_io_device_data->buffered_input = input;
+        }
+    }
+}
 
 
 int cpu_push_stack_uint8(CpuData* cpu_data, uint8_t value) {
@@ -99,7 +171,7 @@ void cpu_set_reg(CpuData* cpu_data, uint8_t reg, uint32_t value) {
     }
 }
 
-int tick_cpu(CpuData* cpu_data, bool debug) {
+int tick_cpu(CpuData* cpu_data, DevicesData* devices_data, bool debug) {
     if (cpu_data->regs[REG_PC] > cpu_data->ram_size) {
         cpu_data->regs[REG_PC] = 0;
     }
@@ -208,7 +280,7 @@ int tick_cpu(CpuData* cpu_data, bool debug) {
                 cpu_data->regs[REG_PC] += 6;
 
                 uint8_t reg = cpu_data->ram[pc + 1];
-                uint8_t value = cpu_data->ram[pc + 2];
+                uint32_t value = cpu_data->ram[pc + 2];
                 value |= cpu_data->ram[pc + 3] << 8;
                 value |= cpu_data->ram[pc + 4] << 16;
                 value |= cpu_data->ram[pc + 5] << 24;
@@ -222,7 +294,7 @@ int tick_cpu(CpuData* cpu_data, bool debug) {
                 cpu_data->regs[REG_PC] += 6;
 
                 uint8_t reg = cpu_data->ram[pc + 1];
-                uint8_t addr = cpu_data->ram[pc + 2];
+                uint32_t addr = cpu_data->ram[pc + 2];
                 addr |= cpu_data->ram[pc + 3] << 8;
                 addr |= cpu_data->ram[pc + 4] << 16;
                 addr |= cpu_data->ram[pc + 5] << 24;
@@ -236,7 +308,7 @@ int tick_cpu(CpuData* cpu_data, bool debug) {
                 cpu_data->regs[REG_PC] += 6;
 
                 uint8_t reg = cpu_data->ram[pc + 1];
-                uint8_t addr = cpu_data->ram[pc + 2];
+                uint32_t addr = cpu_data->ram[pc + 2];
                 addr |= cpu_data->ram[pc + 3] << 8;
                 addr |= cpu_data->ram[pc + 4] << 16;
                 addr |= cpu_data->ram[pc + 5] << 24;
@@ -252,7 +324,7 @@ int tick_cpu(CpuData* cpu_data, bool debug) {
                 cpu_data->regs[REG_PC] += 6;
 
                 uint8_t reg = cpu_data->ram[pc + 1];
-                uint8_t addr = cpu_data->ram[pc + 2];
+                uint32_t addr = cpu_data->ram[pc + 2];
                 addr |= cpu_data->ram[pc + 3] << 8;
                 addr |= cpu_data->ram[pc + 4] << 16;
                 addr |= cpu_data->ram[pc + 5] << 24;
@@ -313,7 +385,7 @@ int tick_cpu(CpuData* cpu_data, bool debug) {
                 cpu_data->regs[REG_PC] += 6;
 
                 uint8_t reg = cpu_data->ram[pc + 1];
-                uint8_t addr = cpu_data->ram[pc + 2];
+                uint32_t addr = cpu_data->ram[pc + 2];
                 addr |= cpu_data->ram[pc + 3] << 8;
                 addr |= cpu_data->ram[pc + 4] << 16;
                 addr |= cpu_data->ram[pc + 5] << 24;
@@ -327,7 +399,7 @@ int tick_cpu(CpuData* cpu_data, bool debug) {
                 cpu_data->regs[REG_PC] += 6;
 
                 uint8_t reg = cpu_data->ram[pc + 1];
-                uint8_t addr = cpu_data->ram[pc + 2];
+                uint32_t addr = cpu_data->ram[pc + 2];
                 addr |= cpu_data->ram[pc + 3] << 8;
                 addr |= cpu_data->ram[pc + 4] << 16;
                 addr |= cpu_data->ram[pc + 5] << 24;
@@ -342,7 +414,7 @@ int tick_cpu(CpuData* cpu_data, bool debug) {
                 cpu_data->regs[REG_PC] += 6;
 
                 uint8_t reg = cpu_data->ram[pc + 1];
-                uint8_t addr = cpu_data->ram[pc + 2];
+                uint32_t addr = cpu_data->ram[pc + 2];
                 addr |= cpu_data->ram[pc + 3] << 8;
                 addr |= cpu_data->ram[pc + 4] << 16;
                 addr |= cpu_data->ram[pc + 5] << 24;
@@ -611,6 +683,146 @@ int tick_cpu(CpuData* cpu_data, bool debug) {
                 );
             }
             break;
+        
+        case 0x40: // EQ
+            {
+                cpu_data->regs[REG_PC] += 4;
+
+                uint8_t reg_a = cpu_data->ram[pc + 1];
+                uint8_t reg_b = cpu_data->ram[pc + 2];
+                uint8_t reg_str = cpu_data->ram[pc + 3];
+
+                cpu_set_reg(
+                    cpu_data, reg_str,
+                    cpu_get_reg(cpu_data, reg_a) == cpu_get_reg(cpu_data, reg_b)
+                );
+            }
+            break;
+        
+        case 0x41: // GT
+            {
+                cpu_data->regs[REG_PC] += 4;
+
+                uint8_t reg_a = cpu_data->ram[pc + 1];
+                uint8_t reg_b = cpu_data->ram[pc + 2];
+                uint8_t reg_str = cpu_data->ram[pc + 3];
+
+                cpu_set_reg(
+                    cpu_data, reg_str,
+                    cpu_get_reg(cpu_data, reg_a) > cpu_get_reg(cpu_data, reg_b)
+                );
+            }
+            break;
+        
+        case 0x42: // GTE
+            {
+                cpu_data->regs[REG_PC] += 4;
+
+                uint8_t reg_a = cpu_data->ram[pc + 1];
+                uint8_t reg_b = cpu_data->ram[pc + 2];
+                uint8_t reg_str = cpu_data->ram[pc + 3];
+
+                cpu_set_reg(
+                    cpu_data, reg_str,
+                    cpu_get_reg(cpu_data, reg_a) >= cpu_get_reg(cpu_data, reg_b)
+                );
+            }
+            break;
+        
+        case 0x43: // LT
+            {
+                cpu_data->regs[REG_PC] += 4;
+
+                uint8_t reg_a = cpu_data->ram[pc + 1];
+                uint8_t reg_b = cpu_data->ram[pc + 2];
+                uint8_t reg_str = cpu_data->ram[pc + 3];
+
+                cpu_set_reg(
+                    cpu_data, reg_str,
+                    cpu_get_reg(cpu_data, reg_a) < cpu_get_reg(cpu_data, reg_b)
+                );
+            }
+            break;
+        
+        case 0x44: // LTE
+            {
+                cpu_data->regs[REG_PC] += 4;
+
+                uint8_t reg_a = cpu_data->ram[pc + 1];
+                uint8_t reg_b = cpu_data->ram[pc + 2];
+                uint8_t reg_str = cpu_data->ram[pc + 3];
+
+                cpu_set_reg(
+                    cpu_data, reg_str,
+                    cpu_get_reg(cpu_data, reg_a) <= cpu_get_reg(cpu_data, reg_b)
+                );
+            }
+            break;
+        
+        case 0x48: // JMP
+            {
+                uint32_t value = cpu_data->ram[pc + 1];
+                value |= cpu_data->ram[pc + 2] << 8;
+                value |= cpu_data->ram[pc + 3] << 16;
+                value |= cpu_data->ram[pc + 4] << 24;
+
+                cpu_data->regs[REG_PC] = value;
+            }
+            break;
+        
+        case 0x49: // JZ
+            {
+                cpu_data->regs[REG_PC] += 6;
+
+                uint32_t value = cpu_data->ram[pc + 1];
+                value |= cpu_data->ram[pc + 2] << 8;
+                value |= cpu_data->ram[pc + 3] << 16;
+                value |= cpu_data->ram[pc + 4] << 24;
+                uint8_t condition_reg = cpu_data->ram[pc + 5];
+
+                if (cpu_get_reg(cpu_data, condition_reg) == 0) {
+                    cpu_data->regs[REG_PC] = value;
+                }
+            }
+            break;
+        
+        case 0x4a: // JNZ
+            {
+                cpu_data->regs[REG_PC] += 6;
+
+                uint32_t value = cpu_data->ram[pc + 1];
+                value |= cpu_data->ram[pc + 2] << 8;
+                value |= cpu_data->ram[pc + 3] << 16;
+                value |= cpu_data->ram[pc + 4] << 24;
+                uint8_t condition_reg = cpu_data->ram[pc + 5];
+
+                if (cpu_get_reg(cpu_data, condition_reg)) {
+                    cpu_data->regs[REG_PC] = value;
+                }
+            }
+            break;
+        
+        case 0x50: // SND
+            {
+                cpu_data->regs[REG_PC] += 3;
+
+                uint8_t port_reg = cpu_data->ram[pc + 1];
+                uint8_t msg_reg = cpu_data->ram[pc + 2];
+
+                snd_to_device(devices_data, cpu_get_reg(cpu_data, port_reg), cpu_get_reg(cpu_data, msg_reg));
+            }
+            break;
+        
+        case 0x51: // RCV
+            {
+                cpu_data->regs[REG_PC] += 3;
+
+                uint8_t port_reg = cpu_data->ram[pc + 1];
+                uint8_t str_reg = cpu_data->ram[pc + 2];
+
+                cpu_set_reg(cpu_data, str_reg, rcv_from_device(devices_data, cpu_get_reg(cpu_data, port_reg)));
+            }
+            break;
 
         default:
             printf("Instruction 0x%02x is not supported\n", opcode);
@@ -645,13 +857,28 @@ int main() {
     }
     printf("Allocated %d bytes of RAM\n", cpu_data->ram_size);
 
+    DevicesData *devices_data = malloc(sizeof(DevicesData));
+
+    if (devices_data == 0) {
+        printf("FAILED TO ALLOCATE DevicesData STRUCT\n");
+        return 1;
+    }
+
+    {
+        int init_devices_data_return = init_devices_data(devices_data);
+        if (init_devices_data_return) {
+            return init_devices_data_return;
+        }
+    }
+
     for (int i = 0; i < NUM_REGS; i++)
     {
         cpu_data->regs[i] = 0;
     }
 
     while (true) {
-        if ("%d\n", tick_cpu(cpu_data, true)) break;
+        update_devices(devices_data);
+        if ("%d\n", tick_cpu(cpu_data, devices_data, false)) break;
     }
 
     free(cpu_data->ram);
