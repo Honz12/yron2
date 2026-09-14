@@ -1,1 +1,7 @@
-jmp 0
+    ldi8 0x10 1         ; load port of TERMIO device into 0x10
+    ldi8 0x11 0x48      ; load 'H' into 0x11
+
+    snd 0x10 0x11       ; send to TERMIO device
+
+halt_loop:
+    jmp halt_loop       ; halt the cpu

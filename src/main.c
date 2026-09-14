@@ -41,13 +41,16 @@ int init_devices_data(DevicesData *devices_data) {
 }
 
 
-void snd_to_device(DevicesData *devices_data, uint32_t port, uint32_t msg_reg) {
+void snd_to_device(DevicesData *devices_data, uint32_t port, uint32_t msg) {
+    printf("SENT 0x%08x to 0x%02x\n", msg, port);
     switch (port)
     {
         case 0: // NULL device
             break;
     
         case 1: // Terminal IO device
+            char c = msg;
+            printf("TERMIO-OUT: %c\n", c);
             break;
         
         default:
@@ -1015,7 +1018,10 @@ int main(int argc, char *argv[]) {
 
     puts("Press ENTER to start simulation, to start in DEBUG MODE, press 'd' (must be lower case) and then ENTER: ");
 
-    bool debug_mode = getchar() == 'd';
+    char mode_ran = getchar();
+
+    bool debug_mode = mode_ran == 'd';
+    bool clean_mode = mode_ran= 'c';
 
     printf("\n------------------ STARTING SIMULATION ------------------\n");
     int i = 0;
@@ -1057,7 +1063,7 @@ int main(int argc, char *argv[]) {
             current_ips = (uint32_t)(instruction_count / elapsed_sec);
             instruction_count = 0;
             last_ips_time = current_time;
-            if (!debug_mode) {
+            if (!debug_mode && !clean_mode) {
                 if (current_ips > 10e9) {
                     printf("SPEED: %.2f GI/s\n", current_ips / 1e9);
                 }

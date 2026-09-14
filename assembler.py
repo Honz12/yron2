@@ -372,7 +372,28 @@ class CodeGenerator:
                 print(f"UNKNOWN TOKEN {repr(self.t.t)}:{repr(self.t.v)}")
                 self.advance()
 
-        print("-" * 50)
+        # Post Value Replacement
+
+        print("\n----- NAMED REPLACEMENTS -----")
+
+        for replace in value_post_replacements:
+            if replace.name in names:
+                print(replace)
+                value = names[replace.name]
+                number = []
+                if replace.size == 1:
+                    number = [value % 256]
+                elif replace.size == 2:
+                    number = self.int_to_2bytes(value)
+                elif replace.size == 4:
+                    number = self.int_to_4bytes(value)
+
+                for o, b, in enumerate(number):
+                    out[replace.address + o] = b
+            else:
+                print(f"Name {repr(replace.name)} does not exist.")
+
+        print("\n" + "-" * 50)
 
         return bytes(out)
 
