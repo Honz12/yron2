@@ -29,6 +29,8 @@ INST_FORMATS = {
     "RET":      InstructionData(0x02, []),
     "INT":      InstructionData(0x03, [IA_1B]),
 
+    "MOV":      InstructionData(0x04, [IA_1B, IA_1B]),
+
     "PUSH8":    InstructionData(0x08, [IA_1B]),
     "PUSH16":   InstructionData(0x09, [IA_1B]),
     "PUSH32":   InstructionData(0x0a, [IA_1B]),
@@ -50,7 +52,7 @@ INST_FORMATS = {
 
     "ST8":      InstructionData(0x1c, [IA_1B, IA_4B]),
     "ST16":     InstructionData(0x1d, [IA_1B, IA_4B]),
-    "ST32":     InstructionData(0x1d, [IA_1B, IA_4B]),
+    "ST32":     InstructionData(0x1e, [IA_1B, IA_4B]),
 
     "STP8":     InstructionData(0x20, [IA_1B, IA_1B]),
     "STP16":    InstructionData(0x21, [IA_1B, IA_1B]),
@@ -222,6 +224,8 @@ class Lexer:
                         chars += "\r"
                     case "a":
                         chars += "\a"
+                    case "0":
+                        chars += "\0"
                 self.advance()
             else:
                 chars += self.c
@@ -271,7 +275,7 @@ class CodeGenerator:
                 print(f"NEW LABEL {self.t.v} AT {len(out)}")
                 names[self.t.v] = len(out)
                 self.advance()
-            if self.t.t == TT_INST:
+            elif self.t.t == TT_INST:
                 inst_tok = self.t
 
                 self.advance()
@@ -309,8 +313,6 @@ class CodeGenerator:
                     else:
                         print(f"Instrution argument can't be type {repr(self.t.t)}")
                         return
-
-                self.advance()
             elif self.t.t == TT_DIR_DUMP8:
                 self.advance()
 
@@ -320,6 +322,9 @@ class CodeGenerator:
                 
                 if self.t.t == TT_CONST:
                     out.append(self.t.v % 256)
+                elif self.t.t == TT_IDEN:
+                    value_post_replacements.append(ValuePostReplacement(len(out), 1, self.t.v))
+                    out += [0xFF]
                 self.advance()
             elif self.t.t == TT_DIR_DUMP16:
                 self.advance()
@@ -330,6 +335,9 @@ class CodeGenerator:
 
                 if self.t.t == TT_CONST:
                     out += self.int_to_2bytes(self.t.v)
+                elif self.t.t == TT_IDEN:
+                    value_post_replacements.append(ValuePostReplacement(len(out), 2, self.t.v))
+                    out += [0xFF, 0xFF]
                 self.advance()
             elif self.t.t == TT_DIR_DUMP32:
                 self.advance()
@@ -340,6 +348,25 @@ class CodeGenerator:
 
                 if self.t.t == TT_CONST:
                     out += self.int_to_4bytes(self.t.v)
+                elif self.t.t == TT_IDEN:
+                    value_post_replacements.append(ValuePostReplacement(len(out), 4, self.t.v))
+                    out += [0xFF, 0xFF, 0xFF, 0xFF]
+                self.advance()
+            elif self.t.t == TT_DIR_STR:
+                self.advance()
+
+                if self.t is None:
+                    print("Expected constant or identifier after DUMP32 (D32)")
+                    return
+
+                if self.t.t == TT_STRING:
+                    for c in self.t.v:
+                        utf = ord(c)
+                        if (utf < 256):
+                            out.append(utf)
+                        else:
+                            print(f"Character {repr(c)} can't be converted to extended ASCII (index over 255), inserting 0x00")
+                            out.append(0)
                 self.advance()
             else:
                 print(f"UNKNOWN TOKEN {repr(self.t.t)}:{repr(self.t.v)}")

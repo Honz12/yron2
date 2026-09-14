@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <sys/stat.h>
+#include <time.h>
 #include "input.c"
 
 
@@ -10,6 +12,7 @@
 #define REG_SP 1
 #define INT_TABLE_START (uint32_t)1024
 #define INT_TABLE_SIZE (uint32_t)256 // 256 * 4 = 1024
+#define SUB_INSTRUCTION_COUNT (1024 * 1024 * 4) // RECOMENDED TO ADJUST FOR BETTER/WORSE COMPUTERS!
 
 typedef struct {
     uint32_t regs[NUM_REGS];
@@ -92,13 +95,15 @@ void update_devices(DevicesData *devices_data) {
 int cpu_push_stack_uint8(CpuData *cpu_data, uint8_t value) {
     uint32_t sp = cpu_data->regs[REG_SP];
 
-    sp--; // Make it so stack won't overrite start position
-
-    if (sp < 0) {
-        return 1;
+    if (sp == 0) {
+        return 1; // Prevent stack underflow
     }
 
+    sp--;
     cpu_data->ram[sp] = value;
+    cpu_data->regs[REG_SP] = sp; // Update SP register
+
+    return 0;
 }
 
 int cpu_push_stack_uint16(CpuData *cpu_data, uint16_t value) {
@@ -187,6 +192,21 @@ int cpu_make_interrupt(CpuData *cpu_data, uint8_t value) {
     }
 }
 
+void cpu_dump_registers(CpuData *cpu_data) {
+    printf("\n-------- CPU REG DUMP --------\n");
+    for (int i = 0; i < NUM_REGS; i++) {
+        if (i == REG_PC) {
+            printf("PC   : 0x%08x | %12d\n", cpu_data->regs[i], cpu_data->regs[i]);
+        }
+        else if (i == REG_SP) {
+            printf("SP   : 0x%08x | %12d\n", cpu_data->regs[i], cpu_data->regs[i]);
+        }
+        else {
+            printf("0x%02x : 0x%08x | %12d\n", i, cpu_data->regs[i], cpu_data->regs[i]);
+        }
+    }
+}
+
 int tick_cpu(CpuData *cpu_data, DevicesData *devices_data, bool debug) {
     if (cpu_data->regs[REG_PC] > cpu_data->ram_size) {
         cpu_data->regs[REG_PC] = 0;
@@ -196,7 +216,10 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data, bool debug) {
     
     uint8_t opcode = cpu_data->ram[pc];
 
-    if (debug) printf("0x%08x: 0x%02x\n", pc, opcode);
+    if (debug) {
+        cpu_dump_registers(cpu_data);
+        printf("INST: %02x\n", opcode);
+    }
 
     switch (opcode) {
         case 0x00: // NOP
@@ -235,6 +258,17 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data, bool debug) {
                 uint8_t value = cpu_data->ram[pc + 1];
 
                 return cpu_make_interrupt(cpu_data, value);
+            }
+            break;
+        
+        case 0x04: // MOV
+            {
+                cpu_data->regs[REG_PC] += 3;
+
+                uint8_t from = cpu_data->ram[pc + 1];
+                uint8_t to = cpu_data->ram[pc + 2];
+
+                cpu_set_reg(cpu_data, to, cpu_get_reg(cpu_data, from));
             }
             break;
         
@@ -455,8 +489,9 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data, bool debug) {
                 addr |= cpu_data->ram[pc + 4] << 16;
                 addr |= cpu_data->ram[pc + 5] << 24;
 
-                cpu_data->ram[addr] = cpu_get_reg(cpu_data, reg);
-                cpu_data->ram[addr] = cpu_get_reg(cpu_data, reg) >> 8;
+                uint32_t val = cpu_get_reg(cpu_data, reg);
+                cpu_data->ram[addr] = val & 0xFF;
+                cpu_data->ram[addr + 1] = (val >> 8) & 0xFF;
             }
             break;
 
@@ -470,10 +505,11 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data, bool debug) {
                 addr |= cpu_data->ram[pc + 4] << 16;
                 addr |= cpu_data->ram[pc + 5] << 24;
 
-                cpu_data->ram[addr] = cpu_get_reg(cpu_data, reg);
-                cpu_data->ram[addr] = cpu_get_reg(cpu_data, reg) >> 8;
-                cpu_data->ram[addr] = cpu_get_reg(cpu_data, reg) >> 16;
-                cpu_data->ram[addr] = cpu_get_reg(cpu_data, reg) >> 24;
+                uint32_t val = cpu_get_reg(cpu_data, reg);
+                cpu_data->ram[addr] = val & 0xFF;
+                cpu_data->ram[addr + 1] = (val >> 8) & 0xFF;
+                cpu_data->ram[addr + 2] = (val >> 16) & 0xFF;
+                cpu_data->ram[addr + 3] = (val >> 24) & 0xFF;
             }
             break;
         
@@ -490,7 +526,7 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data, bool debug) {
             }
             break;
         
-        case 0x21: // STP16
+        case 0x21: // ST16
             {
                 cpu_data->regs[REG_PC] += 3;
 
@@ -499,8 +535,9 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data, bool debug) {
 
                 uint32_t addr = cpu_get_reg(cpu_data, addr_reg);
 
-                cpu_data->ram[addr] = cpu_get_reg(cpu_data, reg);
-                cpu_data->ram[addr] = cpu_get_reg(cpu_data, reg) >> 8;
+                uint32_t val = cpu_get_reg(cpu_data, reg);
+                cpu_data->ram[addr] = val & 0xFF;
+                cpu_data->ram[addr + 1] = (val >> 8) & 0xFF;
             }
             break;
 
@@ -513,10 +550,11 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data, bool debug) {
 
                 uint32_t addr = cpu_get_reg(cpu_data, addr_reg);
 
-                cpu_data->ram[addr] = cpu_get_reg(cpu_data, reg);
-                cpu_data->ram[addr] = cpu_get_reg(cpu_data, reg) >> 8;
-                cpu_data->ram[addr] = cpu_get_reg(cpu_data, reg) >> 16;
-                cpu_data->ram[addr] = cpu_get_reg(cpu_data, reg) >> 24;
+                uint32_t val = cpu_get_reg(cpu_data, reg);
+                cpu_data->ram[addr] = val & 0xFF;
+                cpu_data->ram[addr + 1] = (val >> 8) & 0xFF;
+                cpu_data->ram[addr + 2] = (val >> 16) & 0xFF;
+                cpu_data->ram[addr + 3] = (val >> 24) & 0xFF;
             }
             break;
         
@@ -876,6 +914,7 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data, bool debug) {
             break;
 
         default:
+            printf("WTF\n");
             printf("Instruction 0x%02x is not supported\n", opcode);
             cpu_data->regs[REG_PC]++;
             return 1;
@@ -883,8 +922,14 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data, bool debug) {
     return 0;
 }
 
+double get_elapsed_ms(struct timespec start, struct timespec end) {
+    return (end.tv_sec - start.tv_sec) * 1000.0 + 
+           (end.tv_nsec - start.tv_nsec) / 1000000.0;
+}
 
-int main() {
+int main(int argc, char *argv[]) {
+    printf("\x1b]0;YRON2 CPU VM\x07");
+
     printf("YRON2\n");
 
     CpuData *cpu_data = malloc(sizeof(CpuData));
@@ -896,8 +941,8 @@ int main() {
     }
     printf("Allocated CpuData struct\n");
     
-    // 16 KiB of RAM, for now
-    cpu_data->ram_size = 16 * 1024;
+    // 1 KiB of RAM, for now
+    cpu_data->ram_size = 1 * 1024;
     
     cpu_data->ram = malloc(cpu_data->ram_size);
 
@@ -927,13 +972,113 @@ int main() {
         cpu_data->regs[i] = 0;
     }
 
-    while (true) {
-        update_devices(devices_data);
-        if ("%d\n", tick_cpu(cpu_data, devices_data, false)) break;
+    // LOAD BINARY FILE
+
+    printf("\n------------------- LOADING ROM FILE -------------------\n");
+
+    {
+        char *bin_file_path = "rom.bin";
+
+        if (argc > 1) {
+            bin_file_path = argv[1];
+        }
+
+        FILE *bin_file = fopen(bin_file_path, "rb");
+        if (!bin_file) {
+            printf("Failed to open binary file: %s\n", bin_file_path);
+            return 1;
+        }
+
+        struct stat st;
+        if (stat(bin_file_path, &st) != 0) {
+            printf("Failed to stat binary file.\n");
+            fclose(bin_file);
+            return 1;
+        }
+
+        printf("Reading file '%s' - size: %ld bytes\n", bin_file_path, st.st_size);
+
+        if (st.st_size > cpu_data->ram_size) {
+            printf("ROM size exceeds RAM capacity!\n");
+            fclose(bin_file);
+            return 1;
+        }
+
+        size_t read_bytes = fread(cpu_data->ram, 1, st.st_size, bin_file);
+        printf("Loaded %lu bytes into RAM.\n", read_bytes);
+
+        fclose(bin_file);
+        printf("Closed file.\n");
     }
 
-    free(cpu_data->ram);
-    printf("Freed RAM\n");
-    free(cpu_data);
-    printf("Freed CpuData struct\n");
+    // MAIN LOOP
+
+    puts("Press ENTER to start simulation, to start in DEBUG MODE, press 'd' (must be lower case) and then ENTER: ");
+
+    bool debug_mode = getchar() == 'd';
+
+    printf("\n------------------ STARTING SIMULATION ------------------\n");
+    int i = 0;
+    
+    struct timespec last_ips_time, current_time;
+    clock_gettime(CLOCK_MONOTONIC, &last_ips_time);
+
+    uint64_t instruction_count = 0;
+    uint32_t current_ips = 0;
+
+    if (debug_mode) system("clear");
+
+    while (true) {
+        if (debug_mode) puts("\x1b[H");
+
+        update_devices(devices_data);
+
+        if (!debug_mode) {
+            bool hard_exit = false; 
+            for (int si = 0; si < SUB_INSTRUCTION_COUNT; si++) {
+                if (tick_cpu(cpu_data, devices_data, debug_mode) != 0) { break; hard_exit = true; };
+                i++;
+                instruction_count++;
+            }
+            if (hard_exit) break;
+        }
+        else {
+            if (tick_cpu(cpu_data, devices_data, debug_mode) != 0) break;
+            i++;
+            instruction_count++;
+        }
+
+        // Calculate IPS once per second
+        clock_gettime(CLOCK_MONOTONIC, &current_time);
+        double elapsed_sec = (current_time.tv_sec - last_ips_time.tv_sec) + 
+                            (current_time.tv_nsec - last_ips_time.tv_nsec) / 1e9;
+
+        if (elapsed_sec >= 1.0) {
+            current_ips = (uint32_t)(instruction_count / elapsed_sec);
+            instruction_count = 0;
+            last_ips_time = current_time;
+            if (!debug_mode) {
+                if (current_ips > 10e9) {
+                    printf("SPEED: %.2f GI/s\n", current_ips / 1e9);
+                }
+                else if (current_ips > 10e6) {
+                    printf("SPEED: %.2f MI/s\n", current_ips / 1e6);
+                }
+                else if (current_ips > 10e3) {
+                    printf("SPEED: %.2f kI/s\n", current_ips / 1e3);
+                }
+                else {
+                    printf("SPEED: %u I/s\n", current_ips);
+                }
+            }
+        }
+
+        if (debug_mode) {
+            printf("----------------------------------------------\n"
+                "TICK: %10d\n"
+                "IPS:  %10u\n", i, current_ips);
+        }
+
+        usleep(10);
+    }
 }

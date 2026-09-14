@@ -9,7 +9,7 @@ build/:
 	mkdir build
 
 run: build/exe
-	./build/exe
+	./build/exe test_files/out.bin
 
 clean:
 	rm build/ -fr
@@ -18,4 +18,4 @@ setup-asm:
 	chmod +x assembler.py
 
 test-code:
-	./assembler.py test_files/main.yr2 test_files/lib.yr2 -o test_files/out.bin
+	./assembler.py test_files/main.yr2 -o test_files/out.bin

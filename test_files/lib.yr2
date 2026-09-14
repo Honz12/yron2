@@ -1,4 +1,0 @@
-str "Hello world!\n"
-d8 0x01
-d16 0x01
-d32 0x01

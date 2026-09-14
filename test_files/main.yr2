@@ -1,2 +1,1 @@
-main:           ; this is a label
-    jmp main
+jmp 0
