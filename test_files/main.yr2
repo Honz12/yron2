@@ -1,7 +1,24 @@
-    ldi8 0x10 1         ; load port of TERMIO device into 0x10
-    ldi8 0x11 0x48      ; load 'H' into 0x11
+jmp main                ; entry point jump
 
-    snd 0x10 0x11       ; send to TERMIO device
+;
+; SUBR: putc
+;   puts a character (utf8 - one byte) onto the screen through the TERMIO device
+; PARAMS:
+;   0x10 - character
+;
+putc:
+    ldi8 0x11 1         ; load port of TERMIO device into 0x10
 
-halt_loop:
-    jmp halt_loop       ; halt the cpu
+    snd 0x11 0x10       ; send to TERMIO device
+
+    ret
+
+halt:
+    jmp halt       ; halt the cpu
+
+main:
+    ldi32 0x01 0xFFFF   ; Stack pointer load
+    ldi8 0x10 0x48      ; 'H'
+    call putc
+
+    jmp halt

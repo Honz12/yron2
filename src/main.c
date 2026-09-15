@@ -40,9 +40,12 @@ int init_devices_data(DevicesData *devices_data) {
     return 0;
 }
 
+bool g_debug_mode;
+bool g_clean_mode;
+
 
 void snd_to_device(DevicesData *devices_data, uint32_t port, uint32_t msg) {
-    printf("SENT 0x%08x to 0x%02x\n", msg, port);
+    if (g_debug_mode) printf("SENT 0x%08x to 0x%02x\n", msg, port);
     switch (port)
     {
         case 0: // NULL device
@@ -50,7 +53,8 @@ void snd_to_device(DevicesData *devices_data, uint32_t port, uint32_t msg) {
     
         case 1: // Terminal IO device
             char c = msg;
-            printf("TERMIO-OUT: %c\n", c);
+            putc(c, stdout);
+            fflush(stdout);
             break;
         
         default:
@@ -90,6 +94,8 @@ void update_devices(DevicesData *devices_data) {
 
         if (input) {
             devices_data->terminal_io_device_data->buffered_input = input;
+            //putc((char)input, stdout);
+            //fflush(stdout);
         }
     }
 }
@@ -114,6 +120,8 @@ int cpu_push_stack_uint16(CpuData *cpu_data, uint16_t value) {
 
     if (cpu_push_stack_uint8(cpu_data, value)) return 1;
     if (cpu_push_stack_uint8(cpu_data, value >> 8)) return 1;
+
+    return 0;
 }
 
 int cpu_push_stack_uint32(CpuData *cpu_data, uint32_t value) {
@@ -123,6 +131,8 @@ int cpu_push_stack_uint32(CpuData *cpu_data, uint32_t value) {
     if (cpu_push_stack_uint8(cpu_data, value >> 8)) return 1;
     if (cpu_push_stack_uint8(cpu_data, value >> 16)) return 1;
     if (cpu_push_stack_uint8(cpu_data, value >> 24)) return 1;
+
+    return 0;
 }
 
 int cpu_pop_stack_uint8(CpuData *cpu_data, uint8_t *value) {
@@ -143,8 +153,8 @@ int cpu_pop_stack_uint16(CpuData *cpu_data, uint16_t *value) {
     uint8_t low = 0;
     uint8_t high = 0;
 
-    if (cpu_pop_stack_uint8(cpu_data, &low)) return 1;
     if (cpu_pop_stack_uint8(cpu_data, &high)) return 1;
+    if (cpu_pop_stack_uint8(cpu_data, &low)) return 1;
 
     *value = (uint16_t)(((uint16_t)high << 8) | low);
     return 0;
@@ -156,10 +166,10 @@ int cpu_pop_stack_uint32(CpuData *cpu_data, uint32_t *value) {
     uint8_t b2 = 0;
     uint8_t b3 = 0;
 
-    if (cpu_pop_stack_uint8(cpu_data, &b0)) return 1;
-    if (cpu_pop_stack_uint8(cpu_data, &b1)) return 1;
-    if (cpu_pop_stack_uint8(cpu_data, &b2)) return 1;
     if (cpu_pop_stack_uint8(cpu_data, &b3)) return 1;
+    if (cpu_pop_stack_uint8(cpu_data, &b2)) return 1;
+    if (cpu_pop_stack_uint8(cpu_data, &b1)) return 1;
+    if (cpu_pop_stack_uint8(cpu_data, &b0)) return 1;
 
     *value = ((uint32_t)b3 << 24) |
              ((uint32_t)b2 << 16) |
@@ -210,7 +220,7 @@ void cpu_dump_registers(CpuData *cpu_data) {
     }
 }
 
-int tick_cpu(CpuData *cpu_data, DevicesData *devices_data, bool debug) {
+int tick_cpu(CpuData *cpu_data, DevicesData *devices_data) {
     if (cpu_data->regs[REG_PC] > cpu_data->ram_size) {
         cpu_data->regs[REG_PC] = 0;
     }
@@ -219,7 +229,7 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data, bool debug) {
     
     uint8_t opcode = cpu_data->ram[pc];
 
-    if (debug) {
+    if (g_debug_mode) {
         cpu_dump_registers(cpu_data);
         printf("INST: %02x\n", opcode);
     }
@@ -917,17 +927,11 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data, bool debug) {
             break;
 
         default:
-            printf("WTF\n");
-            printf("Instruction 0x%02x is not supported\n", opcode);
+            printf("\nInstruction 0x%02x at 0x%08x is not supported\n", opcode, cpu_data->regs[REG_PC]);
             cpu_data->regs[REG_PC]++;
             return 1;
     }
     return 0;
-}
-
-double get_elapsed_ms(struct timespec start, struct timespec end) {
-    return (end.tv_sec - start.tv_sec) * 1000.0 + 
-           (end.tv_nsec - start.tv_nsec) / 1000000.0;
 }
 
 int main(int argc, char *argv[]) {
@@ -944,8 +948,8 @@ int main(int argc, char *argv[]) {
     }
     printf("Allocated CpuData struct\n");
     
-    // 1 KiB of RAM, for now
-    cpu_data->ram_size = 1 * 1024;
+    // 1 MiB of RAM, for now
+    cpu_data->ram_size = 1024 * 1024;
     
     cpu_data->ram = malloc(cpu_data->ram_size);
 
@@ -1016,12 +1020,12 @@ int main(int argc, char *argv[]) {
 
     // MAIN LOOP
 
-    puts("Press ENTER to start simulation, to start in DEBUG MODE, press 'd' (must be lower case) and then ENTER: ");
+    puts("Press ENTER to start simulation, to start in DEBUG MODE, press 'd', to start in CLEAN MODE, press 'c' and then ENTER: ");
 
     char mode_ran = getchar();
 
-    bool debug_mode = mode_ran == 'd';
-    bool clean_mode = mode_ran= 'c';
+    g_debug_mode = mode_ran == 'd';
+    g_clean_mode = mode_ran == 'c';
 
     printf("\n------------------ STARTING SIMULATION ------------------\n");
     int i = 0;
@@ -1032,24 +1036,27 @@ int main(int argc, char *argv[]) {
     uint64_t instruction_count = 0;
     uint32_t current_ips = 0;
 
-    if (debug_mode) system("clear");
+    if (g_debug_mode) system("clear");
 
     while (true) {
-        if (debug_mode) puts("\x1b[H");
+        if (g_debug_mode) {
+            getchar();
+            system("clear");
+        };
 
         update_devices(devices_data);
 
-        if (!debug_mode) {
+        if (!g_debug_mode) {
             bool hard_exit = false; 
             for (int si = 0; si < SUB_INSTRUCTION_COUNT; si++) {
-                if (tick_cpu(cpu_data, devices_data, debug_mode) != 0) { break; hard_exit = true; };
+                if (tick_cpu(cpu_data, devices_data) != 0) { hard_exit = true; break; };
                 i++;
                 instruction_count++;
             }
             if (hard_exit) break;
         }
         else {
-            if (tick_cpu(cpu_data, devices_data, debug_mode) != 0) break;
+            if (tick_cpu(cpu_data, devices_data) != 0) break;
             i++;
             instruction_count++;
         }
@@ -1063,7 +1070,7 @@ int main(int argc, char *argv[]) {
             current_ips = (uint32_t)(instruction_count / elapsed_sec);
             instruction_count = 0;
             last_ips_time = current_time;
-            if (!debug_mode && !clean_mode) {
+            if (!g_debug_mode && !g_clean_mode) {
                 if (current_ips > 10e9) {
                     printf("SPEED: %.2f GI/s\n", current_ips / 1e9);
                 }
@@ -1079,10 +1086,11 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        if (debug_mode) {
-            printf("----------------------------------------------\n"
+        if (g_debug_mode) {
+            printf("\n----------------------------------------------\n"
                 "TICK: %10d\n"
-                "IPS:  %10u\n", i, current_ips);
+                "IPS:  %10u\n"
+                "\nPress ENTER to step ...\n", i, current_ips);
         }
 
         usleep(10);

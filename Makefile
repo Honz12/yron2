@@ -8,7 +8,7 @@ build/exe: build/ src/main.c
 build/:
 	mkdir build
 
-run: build/exe
+run: build/exe test-code
 	./build/exe test_files/out.bin
 
 clean:
