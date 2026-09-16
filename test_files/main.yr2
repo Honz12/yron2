@@ -1,9 +1,116 @@
-jmp main                 ; entry point jump
+jmp main                    ; entry point jump
 
 ; DATA
-INTRO_STRING: str "Hello, how are you today?\n\n\n\0"
+
+; ANSI COLORS
+    ERROR_ANSI: str "\e[31m\0"
+    RESET_ANSI: str "\e[0m\0"
+    BOLD_ANSI: str "\e[1m\0"
+    RESET_BOLD_ANSI: str "\e[22m\0"
+
+; KERNEL MESSAGES
+    KERNEL_PANIC_TEXT: str "Kernel Panic\n\0"
+    REBOOT_PROMPT_TEXT: str "To reboot press ANY ...\n\0"
+
+; ERROR MESSAGES
+    RAM_INV_ADDR_ERR_TEXT: str "RAM R/W address out of bounds error.\n\0"
+    GENERIC_ERR_TEXT: str "Generic error.\n\0"
 
 ; CODE
+
+; INTERRUPT HANDLERS
+
+; ----------------------------------------------------------------------------------------
+generic_error_interrupt_handler:
+    ldi32 0x10 ERROR_ANSI
+    call puts               ; print full string
+
+    ldi32 0x10 BOLD_ANSI
+    call puts               ; print full string
+
+    ldi32 0x10 KERNEL_PANIC_TEXT
+    call puts               ; print full string
+
+    ldi32 0x10 RESET_BOLD_ANSI
+    call puts               ; print full string
+
+    ldi32 0x10 GENERIC_ERR_TEXT
+    call puts               ; print full string
+
+    ldi32 0x10 RESET_ANSI
+    call puts               ; print full string
+
+    ldi32 0x10 REBOOT_PROMPT_TEXT
+    call puts               ; print full string
+
+    call getc               ; wait for user input
+
+    jmp reboot_routine      ; reboot the system
+
+; ----------------------------------------------------------------------------------------
+ram_inv_addr_error_handler:
+    ldi32 0x10 ERROR_ANSI
+    call puts               ; print full string
+
+    ldi32 0x10 BOLD_ANSI
+    call puts               ; print full string
+
+    ldi32 0x10 KERNEL_PANIC_TEXT
+    call puts               ; print full string
+
+    ldi32 0x10 RESET_BOLD_ANSI
+    call puts               ; print full string
+
+    ldi32 0x10 RAM_INV_ADDR_ERR_TEXT
+    call puts               ; print full string
+
+    ldi32 0x10 RESET_ANSI
+    call puts               ; print full string
+
+    ldi32 0x10 REBOOT_PROMPT_TEXT
+    call puts               ; print full string
+
+    call getc               ; wait for user input
+
+    jmp reboot_routine      ; reboot the system
+
+; KERNEL FUNCTIONS
+
+; ----------------------------------------------------------------------------------------
+reboot_routine:
+    ldi8 0x01 0x00
+    ldi8 0x02 0x00
+    ldi8 0x03 0x00
+    ldi8 0x04 0x00
+    ldi8 0x05 0x00
+    ldi8 0x06 0x00
+    ldi8 0x07 0x00
+    ldi8 0x08 0x00
+    ldi8 0x09 0x00
+    ldi8 0x0A 0x00
+    ldi8 0x0B 0x00
+    ldi8 0x0C 0x00
+    ldi8 0x0D 0x00
+    ldi8 0x0E 0x00
+    ldi8 0x0F 0x00
+    ldi8 0x10 0x00
+    ldi8 0x11 0x00
+    ldi8 0x12 0x00
+    ldi8 0x13 0x00
+    ldi8 0x14 0x00
+    ldi8 0x15 0x00
+    ldi8 0x16 0x00
+    ldi8 0x17 0x00
+    ldi8 0x18 0x00
+    ldi8 0x19 0x00
+    ldi8 0x1A 0x00
+    ldi8 0x1B 0x00
+    ldi8 0x1C 0x00
+    ldi8 0x1D 0x00
+    ldi8 0x1E 0x00
+    ldi8 0x1F 0x00
+    ldi8 0x00 0x00 ; PC must be last
+
 ; ----------------------------------------------------------------------------------------
 ; SUBR: putc
 ;   puts a character onto the screen through the TERMIO device
@@ -13,8 +120,8 @@ INTRO_STRING: str "Hello, how are you today?\n\n\n\0"
 putc:
     push32 0x11
 
-    ldi8 0x11 1          ; load port of TERMIO device into 0x11
-    snd 0x11 0x10        ; send character in 0x10 to device 0x11
+    ldi8 0x11 1             ; load port of TERMIO device into 0x11
+    snd 0x11 0x10           ; send character in 0x10 to device 0x11
 
     pop32 0x11
     ret
@@ -30,7 +137,6 @@ puts:
     push32 0x11
     push32 0x12
     push32 0x13
-
 puts_loop:
     ldp8 0x11 0x10          ; load byte at [0x10] into 0x11
     ldi8 0x12 0x00          
@@ -45,12 +151,31 @@ puts_loop:
 
     inc 0x10                ; point to next character
     jmp puts_loop
-
 puts_end:
     pop32 0x13
     pop32 0x12
     pop32 0x11
     pop32 0x10
+    ret
+
+; ----------------------------------------------------------------------------------------
+; SUBR: getc
+;   gets a character from the TERMIO device
+; RETURNS:
+;   0x10 - character byte
+;
+getc:
+    push32 0x11
+getc_loop:
+    ldi8 0x11 1             ; load port of TERMIO device into 0x11
+    rcv 0x11 0x10           ; receive character from device 0
+
+    ldi8 0x11 0x00          ; load none character into 0x11
+    eq 0x10 0x11 0x11       ; test if character == none
+    jnz getc_loop 0x11      ; if none, try again
+
+    pop32 0x11
+
     ret
 
 ; ----------------------------------------------------------------------------------------
@@ -60,9 +185,16 @@ halt:
 
 ; ----------------------------------------------------------------------------------------
 main:
-    ldi32 0x01 0xFFFF     ; initialize stack pointer if required
+    ldi32 0x01 0xFFFF       ; initialize stack pointer if required
 
-    ldi32 0x10 INTRO_STRING ; load full 32-bit address of string
-    call puts               ; print full string
+    ld8 0x10 0xFFFFFF       ; raise interrupt to test ram invalid address error interrupt
 
     jmp halt
+
+; IVT
+
+; ----------------------------------------------------------------------------------------
+org 0x0400
+
+d32 generic_error_interrupt_handler             ; 0x00 - Generic Error Interrupt
+d32 ram_inv_addr_error_handler                  ; 0x01 - RAM Invalid Address Error

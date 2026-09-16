@@ -12,6 +12,7 @@ TT_DIR_STR = "dir-str"
 TT_DIR_DUMP8 = "dir-dump8"
 TT_DIR_DUMP16 = "dir-dump16"
 TT_DIR_DUMP32 = "dir-dump32"
+TT_DIR_ORG = "dir-org"
 
 IA_1B = "1 byte"
 IA_2B = "2 bytes"
@@ -100,6 +101,8 @@ DIRECTIVES = {
 
     "d32": TT_DIR_DUMP32,
     "dump32": TT_DIR_DUMP32,
+
+    "org": TT_DIR_ORG,
 }
 
 @dataclass
@@ -238,6 +241,8 @@ class Lexer:
                         chars += "\r"
                     case "a":
                         chars += "\a"
+                    case "e":
+                        chars += "\x1b"
                     case "0":
                         chars += "\0"
                 self.advance()
@@ -264,6 +269,7 @@ class Lexer:
                 "n": ord("\n"),
                 "t": ord("\t"),
                 "a": ord("\a"),
+                "e": ord("\x1b"),
                 "0": 0,
             }
             c = cmap.get(self.c, 0)
@@ -403,7 +409,7 @@ class CodeGenerator:
                 self.advance()
 
                 if self.t is None:
-                    print("Expected constant or identifier after DUMP32 (D32)")
+                    print("Expected string after STR")
                     return
 
                 if self.t.t == TT_STRING:
@@ -414,6 +420,18 @@ class CodeGenerator:
                         else:
                             print(f"Character {repr(c)} can't be converted to extended ASCII (index over 255), inserting 0x00")
                             out.append(0)
+                self.advance()
+            elif self.t.t == TT_DIR_ORG:
+                self.advance()
+
+                if self.t is None:
+                    print("Expected constant after ORG")
+                    return
+
+                if self.t.t == TT_CONST:
+                    while len(out) < self.t.v:
+                        out.append(0x00)
+                
                 self.advance()
             else:
                 print(f"UNKNOWN TOKEN {repr(self.t.t)}:{repr(self.t.v)}")
