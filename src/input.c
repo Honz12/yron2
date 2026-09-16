@@ -1,7 +1,34 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <termios.h>
 #include <fcntl.h>
+
+// Global termios struct to store original settings
+static struct termios g_orig_termios;
+
+void restore_terminal(void) {
+    // Restore original terminal attributes
+    tcsetattr(STDIN_FILENO, TCSANOW, &g_orig_termios);
+}
+
+void setup_terminal(void) {
+    struct termios newt;
+
+    // Save original terminal settings
+    tcgetattr(STDIN_FILENO, &g_orig_termios);
+    
+    // Register automatic cleanup upon exit
+    atexit(restore_terminal);
+
+    newt = g_orig_termios;
+
+    // Turn off canonical mode (ICANON) and echo (ECHO)
+    newt.c_lflag &= ~(ICANON | ECHO);
+
+    // Apply settings immediately and flush any unread input buffer
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &newt);
+}
 
 uint32_t get_input_nb() {
     struct termios oldt, newt;

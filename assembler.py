@@ -140,11 +140,25 @@ class Lexer:
             elif self.c in " \n\t":
                 self.advance()
             elif self.c in DIGITS:
-                tokens.append(self.get_int())
+                t = self.get_int()
+                if t is None:
+                    return
+                tokens.append(t)
             elif self.c in ALPHA:
-                tokens.append(self.get_iden())
+                t = self.get_iden()
+                if t is None:
+                    return
+                tokens.append(t)
             elif self.c == '"':
-                tokens.append(self.get_string())
+                t = self.get_string()
+                if t is None:
+                    return
+                tokens.append(t)
+            elif self.c == "'":
+                t = self.get_char()
+                if t is None:
+                    return
+                tokens.append(t)
 
         return tokens
 
@@ -232,6 +246,39 @@ class Lexer:
                 self.advance()
 
         return Token(TT_STRING, chars)
+
+    def get_char(self):
+        self.advance()
+
+        if self.c is None:
+            print("EXPECTED CHARACTER AFTER `'`")
+            return
+
+        if self.c == '\\':
+            self.advance()
+            if self.c is None:
+                print("EXPECTED CHARACTER AFTER `\\` IN CHARACTER LITERAL")
+                return
+            cmap = {
+                "\\": ord("\\"),
+                "n": ord("\n"),
+                "t": ord("\t"),
+                "a": ord("\a"),
+                "0": 0,
+            }
+            c = cmap.get(self.c, 0)
+        else:
+            c = ord(self.c)
+
+        self.advance()
+
+        if self.c != "'":
+            print("EXPECTED `'` AFTER CHARACTER LITERAL")
+            return
+
+        self.advance()
+
+        return Token(TT_CONST, c)
 
 class CodeGenerator:
     def __init__(self, tokens: list[Token]):
@@ -371,6 +418,7 @@ class CodeGenerator:
             else:
                 print(f"UNKNOWN TOKEN {repr(self.t.t)}:{repr(self.t.v)}")
                 self.advance()
+                return
 
         # Post Value Replacement
 
@@ -434,6 +482,9 @@ if __name__ == "__main__":
     lexer = Lexer(input_text)
     tokens = lexer.get_tokens()
 
+    if tokens is None:
+        exit(1)
+
     print(", ".join(
         map(
             lambda a: str(a),
@@ -443,6 +494,9 @@ if __name__ == "__main__":
 
     code_gen = CodeGenerator(tokens)
     out = code_gen.get_bytes()
+
+    if out is None:
+        exit(1)
 
     with open(output_file, "wb") as of:
         of.write(out)

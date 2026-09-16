@@ -42,6 +42,7 @@ int init_devices_data(DevicesData *devices_data) {
 
 bool g_debug_mode;
 bool g_clean_mode;
+bool g_verbose_mode;
 
 
 void snd_to_device(DevicesData *devices_data, uint32_t port, uint32_t msg) {
@@ -53,8 +54,13 @@ void snd_to_device(DevicesData *devices_data, uint32_t port, uint32_t msg) {
     
         case 1: // Terminal IO device
             char c = msg;
-            putc(c, stdout);
-            fflush(stdout);
+            if (g_verbose_mode) {
+                printf("TERMIO OUT: '%c' (0x%02x)\n", c, c);
+            }
+            else {
+                putc(c, stdout);
+                fflush(stdout);
+            }
             break;
         
         default:
@@ -94,8 +100,6 @@ void update_devices(DevicesData *devices_data) {
 
         if (input) {
             devices_data->terminal_io_device_data->buffered_input = input;
-            //putc((char)input, stdout);
-            //fflush(stdout);
         }
     }
 }
@@ -229,9 +233,8 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data) {
     
     uint8_t opcode = cpu_data->ram[pc];
 
-    if (g_debug_mode) {
-        cpu_dump_registers(cpu_data);
-        printf("INST: %02x\n", opcode);
+    if (g_verbose_mode) {
+        printf("0x%08x: 0x%02x\n", pc, opcode);
     }
 
     switch (opcode) {
@@ -539,7 +542,7 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data) {
             }
             break;
         
-        case 0x21: // ST16
+        case 0x21: // STP16
             {
                 cpu_data->regs[REG_PC] += 3;
 
@@ -935,6 +938,71 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data) {
 }
 
 int main(int argc, char *argv[]) {
+    char *instruction_names[256] = {
+        [0x00] = "NOP",
+        [0x01] = "CALL",
+        [0x02] = "RET",
+        [0x03] = "INT",
+        [0x04] = "MOV",
+
+        [0x08] = "PUSH8",
+        [0x09] = "PUSH16",
+        [0x0A] = "PUSH32",
+        [0x0B] = "POP8",
+        [0x0C] = "POP16",
+        [0x0D] = "POP32",
+
+        [0x10] = "LDI8",
+        [0x11] = "LDI16",
+        [0x12] = "LDI32",
+
+        [0x14] = "LD8",
+        [0x15] = "LD16",
+        [0x16] = "LD32",
+
+        [0x18] = "LDP8",
+        [0x19] = "LDP16",
+        [0x1A] = "LDP32",
+
+        [0x1C] = "ST8",
+        [0x1D] = "ST16",
+        [0x1E] = "ST32",
+
+        [0x20] = "STP8",
+        [0x21] = "STP16",
+        [0x22] = "STP32",
+
+        [0x24] = "ADD",
+        [0x25] = "SUB",
+        [0x26] = "MUL",
+        [0x27] = "MULS",
+        [0x28] = "DIV",
+        [0x29] = "DIVS",
+        [0x2A] = "MOD",
+        [0x2B] = "MODS",
+        [0x2C] = "INC",
+        [0x2D] = "DEC",
+
+        [0x30] = "AND",
+        [0x31] = "NAND",
+        [0x32] = "OR",
+        [0x33] = "NOR",
+        [0x34] = "XOR",
+
+        [0x40] = "EQ",
+        [0x41] = "GT",
+        [0x42] = "GTE",
+        [0x43] = "LT",
+        [0x44] = "LTE",
+
+        [0x48] = "JMP",
+        [0x49] = "JZ",
+        [0x4A] = "JNZ",
+
+        [0x50] = "SND",
+        [0x51] = "RCV"
+    };
+
     printf("\x1b]0;YRON2 CPU VM\x07");
 
     printf("YRON2\n");
@@ -1020,12 +1088,20 @@ int main(int argc, char *argv[]) {
 
     // MAIN LOOP
 
-    puts("Press ENTER to start simulation, to start in DEBUG MODE, press 'd', to start in CLEAN MODE, press 'c' and then ENTER: ");
+    setup_terminal();
+
+    puts(
+        "\nPress ENTER to start simulation\n"
+        "To start in DEBUG MODE, press 'd'\n"
+        "To start in CLEAN MODE, press 'c'\n"
+        "To start in VERBOSE MODE press 'v'"
+    );
 
     char mode_ran = getchar();
 
     g_debug_mode = mode_ran == 'd';
-    g_clean_mode = mode_ran == 'c';
+    g_clean_mode = mode_ran == 'c' || mode_ran == 'v';
+    g_verbose_mode = mode_ran == 'v';
 
     printf("\n------------------ STARTING SIMULATION ------------------\n");
     int i = 0;
@@ -1040,7 +1116,31 @@ int main(int argc, char *argv[]) {
 
     while (true) {
         if (g_debug_mode) {
-            getchar();
+            cpu_dump_registers(cpu_data);
+            if (cpu_data->regs[REG_PC] < cpu_data->ram_size) {
+                uint8_t opcode = cpu_data->ram[cpu_data->regs[REG_PC]];
+                char* alias = instruction_names[opcode];
+                if (alias == NULL) {
+                    printf("\nINST (0x%08x): 0x%02x\n", cpu_data->regs[REG_PC], opcode);
+                }
+                else {
+                    printf("\nINST (0x%08x): %s (0x%02x)\n", cpu_data->regs[REG_PC], alias, opcode);
+                }
+            }
+            else {
+                printf("\nPC OVERFLOW\n");
+            }
+            printf(
+                "TICK: %10d\n"
+                "IPS:  %10u\n"
+                "\nPress any to step ...\n", i, current_ips);
+
+            char c = getchar();
+
+            if (c == 'q') {
+                break;
+            }
+
             system("clear");
         };
 
@@ -1084,13 +1184,6 @@ int main(int argc, char *argv[]) {
                     printf("SPEED: %u I/s\n", current_ips);
                 }
             }
-        }
-
-        if (g_debug_mode) {
-            printf("\n----------------------------------------------\n"
-                "TICK: %10d\n"
-                "IPS:  %10u\n"
-                "\nPress ENTER to step ...\n", i, current_ips);
         }
 
         usleep(10);
