@@ -7,10 +7,11 @@ jmp main                    ; entry point jump
     RESET_ANSI: str "\e[0m\0"
     BOLD_ANSI: str "\e[1m\0"
     RESET_BOLD_ANSI: str "\e[22m\0"
+    CLEAR_SCREEN_ANSI: str "\e[2J\e[H\0"
 
 ; KERNEL MESSAGES
     KERNEL_PANIC_TEXT: str "Kernel Panic\n\0"
-    REBOOT_PROMPT_TEXT: str "To reboot press ANY ...\n\0"
+    REBOOT_PROMPT_TEXT: str "To shutdown press 'q' or 'Q'\nTo reboot press ANY OTHER key ...\n\0"
 
 ; ERROR MESSAGES
     RAM_INV_ADDR_ERR_TEXT: str "RAM R/W address out of bounds error.\n\0"
@@ -45,7 +46,15 @@ generic_error_interrupt_handler:
 
     call getc               ; wait for user input
 
-    jmp reboot_routine      ; reboot the system
+    ldi8 0x11 'q'
+    eq 0x10 0x11 0x11       ; test if character == 'q'
+    jnz halt 0x11           ; if not 'q', reboot the system
+
+    ldi8 0x11 'Q'
+    eq 0x10 0x11 0x11       ; test if character == 'Q'
+    jnz halt 0x11           ; if not 'Q', reboot the system
+
+    jmp reboot_routine
 
 ; ----------------------------------------------------------------------------------------
 ram_inv_addr_error_handler:
@@ -72,7 +81,15 @@ ram_inv_addr_error_handler:
 
     call getc               ; wait for user input
 
-    jmp reboot_routine      ; reboot the system
+    ldi8 0x11 'q'
+    eq 0x10 0x11 0x11       ; test if character == 'q'
+    jnz halt 0x11           ; if not 'q', reboot the system
+
+    ldi8 0x11 'Q'
+    eq 0x10 0x11 0x11       ; test if character == 'Q'
+    jnz halt 0x11           ; if not 'Q', reboot the system
+
+    jmp reboot_routine
 
 ; KERNEL FUNCTIONS
 
@@ -186,6 +203,8 @@ halt:
 ; ----------------------------------------------------------------------------------------
 main:
     ldi32 0x01 0xFFFF       ; initialize stack pointer if required
+    ldi32 0x10 CLEAR_SCREEN_ANSI
+    call puts               ; clear the screen
 
     ld8 0x10 0xFFFFFF       ; raise interrupt to test ram invalid address error interrupt
 
