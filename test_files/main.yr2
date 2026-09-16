@@ -22,42 +22,26 @@ jmp main                    ; entry point jump
 ; INTERRUPT HANDLERS
 
 ; ----------------------------------------------------------------------------------------
-generic_error_interrupt_handler:
-    ldi32 0x10 ERROR_ANSI
-    call puts               ; print full string
-
-    ldi32 0x10 BOLD_ANSI
-    call puts               ; print full string
-
-    ldi32 0x10 KERNEL_PANIC_TEXT
-    call puts               ; print full string
-
-    ldi32 0x10 RESET_BOLD_ANSI
-    call puts               ; print full string
-
+ram_inv_addr_error_handler:
     ldi32 0x10 GENERIC_ERR_TEXT
-    call puts               ; print full string
-
-    ldi32 0x10 RESET_ANSI
-    call puts               ; print full string
-
-    ldi32 0x10 REBOOT_PROMPT_TEXT
-    call puts               ; print full string
-
-    call getc               ; wait for user input
-
-    ldi8 0x11 'q'
-    eq 0x10 0x11 0x11       ; test if character == 'q'
-    jnz halt 0x11           ; if not 'q', reboot the system
-
-    ldi8 0x11 'Q'
-    eq 0x10 0x11 0x11       ; test if character == 'Q'
-    jnz halt 0x11           ; if not 'Q', reboot the system
-
-    jmp reboot_routine
+    jmp kernel_panic_handler
 
 ; ----------------------------------------------------------------------------------------
 ram_inv_addr_error_handler:
+    ldi32 0x10 RAM_INV_ADDR_ERR_TEXT
+    jmp kernel_panic_handler
+
+; KERNEL FUNCTIONS
+
+; ----------------------------------------------------------------------------------------
+; JMPP: kernel_panic_handler
+;   displays a kernel panic message and waits for user input to either reboot or shutdown the system
+; PARAMS:
+;   0x10 - error message string pointer
+;
+kernel_panic_handler:
+    push32 0x10
+
     ldi32 0x10 ERROR_ANSI
     call puts               ; print full string
 
@@ -70,8 +54,9 @@ ram_inv_addr_error_handler:
     ldi32 0x10 RESET_BOLD_ANSI
     call puts               ; print full string
 
-    ldi32 0x10 RAM_INV_ADDR_ERR_TEXT
+    pop32 0x10
     call puts               ; print full string
+    push32 0x10
 
     ldi32 0x10 RESET_ANSI
     call puts               ; print full string
@@ -89,9 +74,9 @@ ram_inv_addr_error_handler:
     eq 0x10 0x11 0x11       ; test if character == 'Q'
     jnz halt 0x11           ; if not 'Q', reboot the system
 
-    jmp reboot_routine
+    pop32 0x10
 
-; KERNEL FUNCTIONS
+    jmp reboot_routine
 
 ; ----------------------------------------------------------------------------------------
 reboot_routine:
