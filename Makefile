@@ -1,4 +1,5 @@
 CC=gcc
+PYTHON=python
 
 .PHONY: run clean setup-asm test-code
 
@@ -14,8 +15,5 @@ run: build/exe test-code
 clean:
 	rm build/ -fr
 
-setup-asm:
-	chmod +x assembler.py
-
 test-code:
-	./assembler.py test_files/kernel.yr2 -o test_files/out.bin
+	$(PYTHON) assembler.py test_files/kernel.yr2 test_files/main.yr2 -o test_files/out.bin

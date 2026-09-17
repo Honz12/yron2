@@ -1,3 +1,8 @@
+ldi32 0x01 0xFFFF       ; initialize stack pointer
+
+ldi32 0x10 CLEAR_SCREEN_ANSI
+call puts                   ; clear the screen
+
 jmp main                    ; entry point jump
 
 ; DATA
@@ -142,12 +147,12 @@ puts:
     push32 0x11
     push32 0x12
     push32 0x13
-puts_loop:
+.loop:
     ldp8 0x11 0x10          ; load byte at [0x10] into 0x11
     ldi8 0x12 0x00          
     
     eq 0x11 0x12 0x13       ; test if byte == 0x00
-    jnz puts_end 0x13       ; exit loop if null terminator found
+    jnz .end 0x13       ; exit loop if null terminator found
 
     push32 0x10             
     mov 0x11 0x10           ; move character parameter to 0x10
@@ -155,8 +160,8 @@ puts_loop:
     pop32 0x10              
 
     inc 0x10                ; point to next character
-    jmp puts_loop
-puts_end:
+    jmp .loop
+.end:
     pop32 0x13
     pop32 0x12
     pop32 0x11
@@ -171,13 +176,13 @@ puts_end:
 ;
 getc:
     push32 0x11
-getc_loop:
+.loop:
     ldi8 0x11 1             ; load port of TERMIO device into 0x11
     rcv 0x11 0x10           ; receive character from device 0
 
     ldi8 0x11 0x00          ; load none character into 0x11
     eq 0x10 0x11 0x11       ; test if character == none
-    jnz getc_loop 0x11      ; if none, try again
+    jnz .loop 0x11      ; if none, try again
 
     pop32 0x11
 
@@ -196,7 +201,7 @@ putu:
     push32 0x13             ; Digit counter
 
     ldi32 0x13 0            ; Initialize counter
-putu_calc_loop:
+.calc_loop:
     ldi8 0x11 10
     mod 0x10 0x11 0x12      ; 0x12 = 0x10 % 10
     ldi8 0x11 '0'
@@ -210,16 +215,16 @@ putu_calc_loop:
 
     ldi8 0x11 0x00
     eq 0x10 0x11 0x11
-    jz putu_calc_loop 0x11  ; Continue if quotient != 0
-putu_print_loop:
+    jz .calc_loop 0x11  ; Continue if quotient != 0
+.print_loop:
     pop32 0x10              ; Pop ASCII character into 0x10 parameter
     call putc
     dec 0x13
     
     ldi8 0x11 0x00
     eq 0x13 0x11 0x11
-    jz putu_print_loop 0x11 ; Loop until all digits printed
-putu_end:
+    jz .print_loop 0x11 ; Loop until all digits printed
+.end:
     pop32 0x13
     pop32 0x12
     pop32 0x11
@@ -231,14 +236,6 @@ putu_end:
 halt:
     jmp halt                ; halt execution loop
 
-; ----------------------------------------------------------------------------------------
-main:
-    ldi32 0x01 0xFFFF       ; initialize stack pointer if required
-    ldi32 0x10 CLEAR_SCREEN_ANSI
-    call puts               ; clear the screen
-
-    jmp halt
-
 ; IVT
 
 ; ----------------------------------------------------------------------------------------
@@ -246,3 +243,5 @@ org 0x0400
 
 d32 generic_error_interrupt_handler             ; 0x00 - Generic Error Interrupt
 d32 ram_inv_addr_error_handler                  ; 0x01 - RAM Invalid Address Error
+
+org 0x0800

@@ -114,14 +114,15 @@ DIGITS = "0123456789"
 HEX_CHARS = DIGITS + "abcdefABCDEF"
 BIN_CHARS = "01"
 OCT_CHARS = "01234567"
-ALPHA = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_"
+ALPHA = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_."
 ALNUM = ALPHA + DIGITS
 
 class Lexer:
-    def __init__(self, code: str):
+    def __init__(self, code: str, verbose = False):
         self.code = code
         self.idx = -1
         self.c = None
+        self.verbose = verbose
 
         self.advance()
 
@@ -287,10 +288,11 @@ class Lexer:
         return Token(TT_CONST, c)
 
 class CodeGenerator:
-    def __init__(self, tokens: list[Token]):
+    def __init__(self, tokens: list[Token], verbose = False):
         self.tokens = tokens
         self.i = -1
         self.t = None
+        self.verbose = verbose
 
         self.advance()
 
@@ -319,14 +321,25 @@ class CodeGenerator:
 
         out: list[int] = []
         names: dict[str, int] = {}
+        current_label_scope = ""
         value_post_replacements: list[ValuePostReplacement] = []
 
-        print("-" * 50)
+        def resolve_label(label: str):
+            if label.startswith("."):
+                return current_label_scope + label
+            return label
+
+        if self.verbose: print("-" * 50)
 
         while self.t != None:
             if self.t.t == TT_LDEF:
-                print(f"NEW LABEL {self.t.v} AT {len(out)}")
-                names[self.t.v] = len(out)
+                name = str(self.t.v)
+                if name.startswith("."):
+                    name = current_label_scope + name
+                else:
+                    current_label_scope = name
+                if self.verbose: print(f"NEW LABEL {name} AT {len(out)}")
+                names[name] = len(out)
                 self.advance()
             elif self.t.t == TT_INST:
                 inst_tok = self.t
@@ -334,7 +347,7 @@ class CodeGenerator:
                 self.advance()
 
                 inst_data = INST_FORMATS[inst_tok.v]
-                print(inst_tok.v, "-", inst_data)
+                if self.verbose: print(inst_tok.v, "-", inst_data)
 
                 out.append(inst_data.opcode)
 
@@ -353,13 +366,13 @@ class CodeGenerator:
                         self.advance()
                     elif self.t.t == TT_IDEN:
                         if arg_req == IA_1B:
-                            value_post_replacements.append(ValuePostReplacement(len(out), 1, self.t.v))
+                            value_post_replacements.append(ValuePostReplacement(len(out), 1, resolve_label(self.t.v)))
                             out += [0xFF]
                         if arg_req == IA_2B:
-                            value_post_replacements.append(ValuePostReplacement(len(out), 2, self.t.v))
+                            value_post_replacements.append(ValuePostReplacement(len(out), 2, resolve_label(self.t.v)))
                             out += [0xFF, 0xFF]
                         if arg_req == IA_4B:
-                            value_post_replacements.append(ValuePostReplacement(len(out), 4, self.t.v))
+                            value_post_replacements.append(ValuePostReplacement(len(out), 4, resolve_label(self.t.v)))
                             out += [0xFF, 0xFF, 0xFF, 0xFF]
 
                         self.advance()
@@ -376,7 +389,7 @@ class CodeGenerator:
                 if self.t.t == TT_CONST:
                     out.append(self.t.v % 256)
                 elif self.t.t == TT_IDEN:
-                    value_post_replacements.append(ValuePostReplacement(len(out), 1, self.t.v))
+                    value_post_replacements.append(ValuePostReplacement(len(out), 1, resolve_label(self.t.v)))
                     out += [0xFF]
                 self.advance()
             elif self.t.t == TT_DIR_DUMP16:
@@ -389,7 +402,7 @@ class CodeGenerator:
                 if self.t.t == TT_CONST:
                     out += self.int_to_2bytes(self.t.v)
                 elif self.t.t == TT_IDEN:
-                    value_post_replacements.append(ValuePostReplacement(len(out), 2, self.t.v))
+                    value_post_replacements.append(ValuePostReplacement(len(out), 2, resolve_label(self.t.v)))
                     out += [0xFF, 0xFF]
                 self.advance()
             elif self.t.t == TT_DIR_DUMP32:
@@ -402,7 +415,7 @@ class CodeGenerator:
                 if self.t.t == TT_CONST:
                     out += self.int_to_4bytes(self.t.v)
                 elif self.t.t == TT_IDEN:
-                    value_post_replacements.append(ValuePostReplacement(len(out), 4, self.t.v))
+                    value_post_replacements.append(ValuePostReplacement(len(out), 4, resolve_label(self.t.v)))
                     out += [0xFF, 0xFF, 0xFF, 0xFF]
                 self.advance()
             elif self.t.t == TT_DIR_STR:
@@ -440,11 +453,11 @@ class CodeGenerator:
 
         # Post Value Replacement
 
-        print("\n----- NAMED REPLACEMENTS -----")
+        if self.verbose: print("\n----- NAMED REPLACEMENTS -----")
 
         for replace in value_post_replacements:
             if replace.name in names:
-                print(replace)
+                if self.verbose: print(replace)
                 value = names[replace.name]
                 number = []
                 if replace.size == 1:
@@ -459,7 +472,7 @@ class CodeGenerator:
             else:
                 print(f"Name {repr(replace.name)} does not exist.")
 
-        print("\n" + "-" * 50)
+        if self.verbose: print("\n" + "-" * 50)
 
         return bytes(out)
 
@@ -470,18 +483,23 @@ if __name__ == "__main__":
     input_files = []
     output_file = "out.bin"
 
+    verbose = False
+
     setting_out = False
 
     for a in args:
         if setting_out:
             output_file = a
+            setting_out = False
         elif a == "-o":
             setting_out = True
+        elif a == "-v":
+            verbose = True
         else:
             input_files.append(a)
 
-    print(f"Input files: {", ".join(input_files)}")
-    print(f"Output file: {output_file}")
+    if verbose: print(f"Input files: {", ".join(input_files)}")
+    if verbose: print(f"Output file: {output_file}")
 
     input_text: str = ""
 
@@ -490,27 +508,27 @@ if __name__ == "__main__":
             with open(ifile, "r") as f:
                 cont = f.read()
                 input_text += f"; {'-' * 50}\n; FILE {ifile}\n; {'-' * 50}\n" + cont + "\n"
-            print(f"Opened file {ifile}, ({cont.count("\n") + 1} lines)")
+            if verbose: print(f"Opened file {ifile}, ({cont.count("\n") + 1} lines)")
         except Exception as e:
             print(f"Failed to open file {ifile}")
-            print(e)
+            if verbose: print(e)
 
-    print(f"\x1b[90m{input_text}\x1b[0m")
+    if verbose: print(f"\x1b[90m{input_text}\x1b[0m")
 
-    lexer = Lexer(input_text)
+    lexer = Lexer(input_text, verbose)
     tokens = lexer.get_tokens()
 
     if tokens is None:
         exit(1)
 
-    print(", ".join(
+    if verbose: print(", ".join(
         map(
             lambda a: str(a),
             tokens
         )
     ))
 
-    code_gen = CodeGenerator(tokens)
+    code_gen = CodeGenerator(tokens, verbose)
     out = code_gen.get_bytes()
 
     if out is None:
