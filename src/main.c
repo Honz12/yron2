@@ -2,9 +2,8 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include <sys/stat.h>
 #include <time.h>
-#include "input.c"
+#include "helpers.h"
 
 
 #define NUM_REGS 32
@@ -1148,22 +1147,17 @@ int main(int argc, char *argv[]) {
             return 1;
         }
 
-        struct stat st;
-        if (stat(bin_file_path, &st) != 0) {
-            printf("Failed to stat binary file.\n");
-            fclose(bin_file);
-            return 1;
-        }
+        uint32_t file_size = get_file_size(bin_file_path);
 
-        printf("Reading file '%s' - size: %ld bytes\n", bin_file_path, st.st_size);
+        printf("Reading file '%s' - size: %ld bytes\n", bin_file_path, file_size);
 
-        if (st.st_size > cpu_data->ram_size) {
+        if (file_size > cpu_data->ram_size) {
             printf("ROM size exceeds RAM capacity!\n");
             fclose(bin_file);
             return 1;
         }
 
-        size_t read_bytes = fread(cpu_data->ram, 1, st.st_size, bin_file);
+        size_t read_bytes = fread(cpu_data->ram, 1, file_size, bin_file);
         printf("Loaded %lu bytes into RAM.\n", read_bytes);
 
         fclose(bin_file);
@@ -1270,6 +1264,6 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        usleep(10);
+        process_sleep(10);
     }
 }
