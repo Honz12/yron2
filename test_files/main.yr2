@@ -79,6 +79,9 @@ kernel_panic_handler:
     jmp reboot_routine
 
 ; ----------------------------------------------------------------------------------------
+; JMPP: reboot_routine
+;   resets all registers and jumps to 0x00000000 to reboot the system
+;
 reboot_routine:
     ldi8 0x01 0x00
     ldi8 0x02 0x00
@@ -181,6 +184,40 @@ getc_loop:
     ret
 
 ; ----------------------------------------------------------------------------------------
+; SUBR: putu
+;   puts an unsigned integer onto the screen through the TERMIO device
+; PARAMS:
+;   0x10 - integer value
+;
+putu:
+    push32 0x10
+    push32 0x11
+    push32 0x12
+putu_loop:
+    ldi8 0x11 10            ; load base 10 into 0x11
+    mod 0x10 0x11 0x12      ; divide 0x10 by 10, remainder in 0x12
+    ldi8 0x11 '0'           ; load ASCII '0' into 0x11
+    add 0x12 0x11 0x12      ; convert remainder to ASCII character
+    
+    push32 0x10             ; PRINT CHARACTER
+    mov 0x12 0x10           ; move character to 0x10
+    call putc
+    pop32 0x10
+    
+    ldi8 0x11 10            ; load base 10 into 0x11
+    div 0x10 0x11 0x10
+
+    ldi8 0x11 0x00          ; load zero into 0x11
+    eq 0x10 0x11 0x11
+    jz putu_loop 0x11       ; if not zero, continue
+putu_end:
+    pop32 0x12
+    pop32 0x11
+    pop32 0x10
+
+    ret
+
+; ----------------------------------------------------------------------------------------
 halt:
     d8 0xFF
     jmp halt                ; halt execution loop
@@ -191,7 +228,8 @@ main:
     ldi32 0x10 CLEAR_SCREEN_ANSI
     call puts               ; clear the screen
 
-    ld8 0x10 0xFFFFFF       ; raise interrupt to test ram invalid address error interrupt
+    ldi32 0x10 0xFF
+    call putu
 
     jmp halt
 
