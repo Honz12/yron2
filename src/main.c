@@ -1149,7 +1149,7 @@ int main(int argc, char *argv[]) {
 
         uint32_t file_size = get_file_size(bin_file_path);
 
-        printf("Reading file '%s' - size: %ld bytes\n", bin_file_path, file_size);
+        printf("Reading file '%s' - size: %u bytes\n", bin_file_path, file_size);
 
         if (file_size > cpu_data->ram_size) {
             printf("ROM size exceeds RAM capacity!\n");
