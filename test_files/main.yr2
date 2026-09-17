@@ -229,7 +229,6 @@ putu_end:
 
 ; ----------------------------------------------------------------------------------------
 halt:
-    ;d8 0xFF
     jmp halt                ; halt execution loop
 
 ; ----------------------------------------------------------------------------------------
@@ -237,9 +236,6 @@ main:
     ldi32 0x01 0xFFFF       ; initialize stack pointer if required
     ldi32 0x10 CLEAR_SCREEN_ANSI
     call puts               ; clear the screen
-
-    ldi32 0x10 0xFF
-    call putu
 
     jmp halt
 
