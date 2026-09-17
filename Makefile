@@ -18,4 +18,4 @@ setup-asm:
 	chmod +x assembler.py
 
 test-code:
-	./assembler.py test_files/main.yr2 -o test_files/out.bin
+	./assembler.py test_files/kernel.yr2 -o test_files/out.bin
