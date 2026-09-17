@@ -1,0 +1,9 @@
+func main {
+    u32 counter;
+
+    counter = 0;
+
+    while (counter == 100) {
+        counter = counter + 1;
+    }
+}
