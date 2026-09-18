@@ -5,6 +5,7 @@ TT_INT = "int"
 TT_STRING = "string"
 
 TT_SEMI = "semi"
+TT_COMMA = "comma"
 
 TT_PLUS = "plus"
 TT_MINUS = "minus"
@@ -37,7 +38,12 @@ TT_KW_I32 = "kw_i32"
 
 TT_KW_FUNC = "kw_func"
 TT_KW_IF = "kw_if"
+TT_KW_ELSE = "kw_else"
 TT_KW_WHILE = "kw_while"
+
+TT_KW_LOC = "lw_loc"
+TT_KW_RES = "lw_res"
+TT_KW_WRT = "lw_wrt"
 
 @dataclass
 class Token:
@@ -47,7 +53,7 @@ class Token:
     end: Position
 
     def __str__(self):
-        if self.v:
+        if self.v is not None:
             return f"({self.t.upper()}:{repr(self.v)})"
         return f"({self.t.upper()})"
 
@@ -61,12 +67,8 @@ class Position:
     def copy(self):
         return Position(self.i, self.row, self.col, self.file)
 
-CERR_FAILED_FILE_READ = "Lexer - File Read"
-CERR_UNEXPECTED_CHARACTER = "Lexer - Unexpected Character"
-
 @dataclass
 class CompilerError:
-    iden: str
     message: str
     position: Position | None
 
@@ -91,10 +93,21 @@ KEYWORD_MAP = {
     "i8": TT_KW_I8,
     "i16": TT_KW_I16,
     "i32": TT_KW_I32,
+
+    "func": TT_KW_FUNC,
+    "if": TT_KW_IF,
+    "else": TT_KW_ELSE,
+    "while": TT_KW_WHILE,
+
+    "loc": TT_KW_LOC,
+    "res": TT_KW_RES,
+    "wrt": TT_KW_WRT,
 }
 
 SYMBOL_MAP = {
     ";": TT_SEMI,
+    ",": TT_COMMA,
+
     "+": TT_PLUS,
     "-": TT_MINUS,
     "*": TT_MUL,
@@ -110,6 +123,10 @@ SYMBOL_MAP = {
     "[": TT_LBRACKET,
     "]": TT_RBRACKET,
 }
+
+OPT_CAN_SIMPLIFY_EXPRESIONS = True
+OPT_CAN_REMOVE_STANDALONE_LITERALS = True
+OPT_CAN_SIMPLIFY_IF_STATEMENTS = True
 
 class Lexer:
     def __init__(self, code: str, file_name: str):
@@ -158,7 +175,7 @@ class Lexer:
                 else:
                     tokens.append(Token(TT_ASSIGN, None, start_pos, self.pos.copy()))
             else:
-                error = CompilerError(CERR_UNEXPECTED_CHARACTER, f"Got unepected character {repr(self.c)}.", self.pos)
+                error = CompilerError(f"LEXER - Got unepected character {repr(self.c)}.", self.pos)
                 error.throw()
 
         return tokens
@@ -287,6 +304,494 @@ class Lexer:
 
         return Token(TT_INT, c, start_pos, self.pos.copy())
 
+@dataclass
+class VariableData:
+    name: str
+    size: int
+    signed: bool
+    value: AstNode | None = None
+
+    def __str__(self):
+        o = "VariableData"
+        o += AstNode.format_as_child(repr(self.name), False, "NAME")
+        o += AstNode.format_as_child(self.size, False, "SIZE")
+        o += AstNode.format_as_child(self.signed, True, "SIGNED")
+
+        return o
+
+@dataclass
+class AstNode:
+    start_pos: Position
+    end_pos: Position
+
+    @staticmethod
+    def format_as_child(node: object, last: bool = False, label: str = None):
+        s = str(node)
+        if label:
+            if last:
+                s = s.replace("\n", "\n        ")
+                return f"\n\x1b[90m ╰─ \x1b[0m{label}\n\x1b[90m     ╰─ \x1b[0m{s}"
+            else:
+                s = s.replace("\n", "\n\x1b[90m │      \x1b[0m")
+                return f"\n\x1b[90m ├─ \x1b[0m{label}\n\x1b[90m │   ╰─ \x1b[0m{s}"
+        else:
+            if last:
+                s = s.replace("\n", "\n    ")
+                return f"\n\x1b[90m ╰─ \x1b[0m{s}"
+            else:
+                s = s.replace("\n", "\n\x1b[90m │  \x1b[0m")
+                return f"\n\x1b[90m ├─ \x1b[0m{s}"
+
+    def optimize(self):
+        return self
+
+@dataclass
+class LiteralIntNode(AstNode):
+    number: int
+
+    def __str__(self):
+        o = f"LiteralInt ({self.number})"
+        return o
+
+@dataclass
+class BinOpNone(AstNode):
+    left: AstNode
+    right: AstNode
+    optok: Token
+
+    def __str__(self):
+        o = f"BinOp {self.optok}"
+        o += self.format_as_child(self.left)
+        o += self.format_as_child(self.right, True)
+        return o
+
+    def optimize(self):
+        self.left = self.left.optimize()
+        self.right = self.right.optimize()
+        
+        if isinstance(self.left, LiteralIntNode) and isinstance(self.right, LiteralIntNode) and OPT_CAN_SIMPLIFY_EXPRESIONS:
+            if self.optok.t == TT_PLUS:
+                return LiteralIntNode(self.start_pos, self.end_pos, self.left.number + self.right.number)
+            if self.optok.t == TT_MINUS:
+                return LiteralIntNode(self.start_pos, self.end_pos, self.left.number - self.right.number)
+            if self.optok.t == TT_MUL:
+                return LiteralIntNode(self.start_pos, self.end_pos, self.left.number * self.right.number)
+            if self.optok.t == TT_DIV:
+                return LiteralIntNode(self.start_pos, self.end_pos, self.left.number // self.right.number if self.right.number != 0 else 0)
+            if self.optok.t == TT_MOD:
+                return LiteralIntNode(self.start_pos, self.end_pos, self.left.number % self.right.number)
+            if self.optok.t == TT_EQUAL:
+                return LiteralIntNode(self.start_pos, self.end_pos, 1 if self.left.number == self.right.number else 0)
+            if self.optok.t == TT_LESSER:
+                return LiteralIntNode(self.start_pos, self.end_pos, 1 if self.left.number > self.right.number else 0)
+            if self.optok.t == TT_GREATER:
+                return LiteralIntNode(self.start_pos, self.end_pos, 1 if self.left.number < self.right.number else 0)
+            
+        if isinstance(self.left, LiteralIntNode) and isinstance(self.right, VariableReferenceNode) and OPT_CAN_SIMPLIFY_EXPRESIONS:
+            if self.optok.t == TT_MUL and self.left.number == 0:
+                return LiteralIntNode(self.start_pos, self.end_pos, 0)
+            
+        if isinstance(self.left, VariableReferenceNode) and isinstance(self.right, LiteralIntNode) and OPT_CAN_SIMPLIFY_EXPRESIONS:
+            if self.optok.t == TT_MUL and self.right.number == 0:
+                return LiteralIntNode(self.start_pos, self.end_pos, 0)
+        return super().optimize()
+
+@dataclass
+class ProgramNode(AstNode):
+    statements: list[AstNode]
+
+    def __str__(self):
+        o = "Program"
+
+        for i, s in enumerate(self.statements):
+            o += self.format_as_child(s, i == len(self.statements) - 1)
+
+        return o
+
+    def optimize(self):
+        i = 0
+        while i < len(self.statements):
+            self.statements[i] = self.statements[i].optimize()
+            if isinstance(self.statements[i], LiteralIntNode) and OPT_CAN_REMOVE_STANDALONE_LITERALS:
+                self.statements.pop(i)
+                i -= 1
+            elif isinstance(self.statements[i], ProgramNode):
+                if len(self.statements[i].statements) == 0:
+                    self.statements.pop(i)
+                    i -= 1
+            i += 1
+        return super().optimize()
+
+
+@dataclass
+class VariableDeclarationNode(AstNode):
+    data: VariableData
+
+    def __str__(self):
+        o = "VariableDeclaration"
+        o += self.format_as_child(repr(self.data.name), False, "NAME")
+        o += self.format_as_child(f"{self.data.size} bytes", False, "SIZE")
+        if self.data.value:
+            o += self.format_as_child("SIGNED" if self.data.signed else "UNSIGNED")
+            o += self.format_as_child(self.data.value, True, "VALUE")
+        else:
+            o += self.format_as_child("SIGNED" if self.data.signed else "UNSIGNED", True)
+        return o
+
+    def optimize(self):
+        if self.data.value:
+            self.data.value = self.data.value.optimize()
+        return super().optimize()
+
+@dataclass
+class VariableReferenceNode(AstNode):
+    name: str
+
+    def __str__(self):
+        o = "VariableReference"
+        o += self.format_as_child(repr(self.name), True)
+        return o
+
+@dataclass
+class FunctionDeclarationNode(AstNode):
+    name: str
+    args: list[VariableData]
+    body: AstNode
+
+    def __str__(self):
+        o = "FunctionDeclaration"
+        o += self.format_as_child(repr(self.name))
+        args_str = ""
+        for i, arg in enumerate(self.args):
+            args_str += self.format_as_child(arg, i == len(self.args) - 1)
+        if len(self.args) > 0:
+            o += self.format_as_child("ARGS" + args_str, False)
+        o += self.format_as_child(self.body, True)
+
+        return o
+
+    def optimize(self):
+        self.body = self.body.optimize()
+        return super().optimize()
+
+@dataclass
+class FunctionCallNode(AstNode):
+    args: list[AstNode]
+    name: str
+
+    def __str__(self):
+        o = "FunctionCall"
+        o += self.format_as_child(repr(self.name), True)
+
+        return o
+
+@dataclass
+class LocationOfSymbolNode(AstNode):
+    name: str
+
+    def __str__(self):
+        o = "LocationOfSymbol"
+        o += self.format_as_child(repr(self.name), True)
+
+        return o
+
+@dataclass
+class ResolveLocationNode(AstNode):
+    loc: AstNode
+
+    def __str__(self):
+        o = "ResolveLocation"
+        o += self.format_as_child(self.loc, True)
+
+        return o
+
+@dataclass
+class WriteLocationNode(AstNode):
+    loc: AstNode
+    value: AstNode
+
+    def __str__(self):
+        o = "WriteLocation"
+        o += self.format_as_child(self.loc, False, "LOCATION")
+        o += self.format_as_child(self.value, True, "VALUE")
+
+        return o
+
+@dataclass
+class IfStatementNode(AstNode):
+    condition: AstNode
+    if_branch: AstNode
+    else_branch: AstNode | None = None
+
+    def __str__(self):
+        o = "IfStatement"
+        o += self.format_as_child(self.condition, False, "CONDITION")
+        if self.else_branch:
+            o += self.format_as_child(self.if_branch, False, "IF BLOCK")
+            o += self.format_as_child(self.else_branch, True, "ELSE BLOCK")
+        else:
+            o += self.format_as_child(self.if_branch, True, "IF BLOCK")
+        return o
+
+    def optimize(self):
+        self.condition = self.condition.optimize()
+        self.if_branch = self.if_branch.optimize()
+        if self.else_branch:
+            self.else_branch = self.else_branch.optimize()
+        if isinstance(self.condition, LiteralIntNode) and OPT_CAN_SIMPLIFY_IF_STATEMENTS:
+            if self.condition.number != 0:
+                return self.if_branch
+            if self.condition.number == 0:
+                if self.else_branch:
+                    return self.else_branch
+                return ProgramNode(self.start_pos, self.end_pos, [])
+        return super().optimize()
+
+VARIBLE_TYPES = {
+    TT_KW_U8: (1, False),
+    TT_KW_U16: (2, False),
+    TT_KW_U32: (4, False),
+    TT_KW_I8: (1, True),
+    TT_KW_I16: (2, True),
+    TT_KW_I32: (4, True),
+}
+
+class Parser:
+    def __init__(self, tokens: list[Token]):
+        self.tokens = tokens
+        self.t = None
+        self.i = -1
+        self.t_spos = Position(0, 0, 0, "")
+        self.t_epos = Position(0, 0, 0, "")
+
+        self.advance()
+
+    def advance(self):
+        self.i += 1
+        if self.i < len(self.tokens):
+            self.t = self.tokens[self.i]
+            self.t_spos = self.t.start
+            self.t_epos = self.t.end
+        else:
+            self.t = None
+
+    def get_ast(self):
+        ast = ProgramNode(self.t_spos, None, [])
+
+        while self.t is not None:
+            ast.statements.append(self.make_statement())
+
+        ast.end_pos = self.t_epos
+
+        return ast
+
+    def make_statement(self) -> AstNode:
+        base_token = self.t
+        
+        if base_token.t in VARIBLE_TYPES:
+            self.advance()
+            return self.make_var_decl(base_token, VARIBLE_TYPES[base_token.t][0], VARIBLE_TYPES[base_token.t][1])
+
+        elif base_token.t == TT_KW_IF:
+            self.advance()
+
+            self.consume(TT_LPAREN)
+
+            condition = self.make_expr()
+
+            self.consume(TT_RPAREN)
+
+            if_branch = self.make_statement()
+
+            else_branch = None
+
+            if self.t is not None:
+                if self.t.t == TT_KW_ELSE:
+                    self.advance()
+                    else_branch = self.make_statement()
+
+            return IfStatementNode(base_token.start, (else_branch if else_branch else if_branch).end_pos, condition, if_branch, else_branch)
+
+        elif base_token.t == TT_KW_FUNC:
+            self.advance()
+
+            iden = self.consume(TT_IDEN)
+
+            self.consume(TT_LPAREN)
+
+            args: list[VariableData] = []
+
+            while self.t is not None:
+                if self.t.t in VARIBLE_TYPES:
+                    dat = VARIBLE_TYPES[self.t.t]
+                    self.advance()
+
+                    arg_iden = self.consume(TT_IDEN)
+
+                    args.append(VariableData(arg_iden.v, dat[0], dat[1]))
+                else:
+                    CompilerError("PARSER - Expected varible type for argument declaration.", self.t.start).throw()
+
+                if self.t.t != TT_COMMA:
+                    break
+                self.consume(TT_COMMA)
+
+            self.consume(TT_RPAREN)
+
+            body = self.make_statement()
+
+            return FunctionDeclarationNode(base_token.start, body.end_pos, iden.v, args, body)
+
+        elif base_token.t == TT_LBRACE:
+            self.advance()
+
+            block = ProgramNode(base_token.start, None, [])
+
+            while self.t is not None:
+                if self.t.t == TT_RBRACE:
+                    block.end_pos = self.t.end
+                    self.advance()
+                    break
+                block.statements.append(self.make_statement())
+
+            if block.end_pos is None:
+                CompilerError("PARSER - Expected `}` after code block", self.t_epos).throw()
+
+            return block
+
+        elif base_token.t in (TT_INT, TT_LPAREN, TT_IDEN, TT_KW_LOC, TT_KW_RES, TT_KW_WRT):
+            expr = self.make_expr()
+            self.consume(TT_SEMI)
+            return expr
+
+        else:
+            CompilerError(f"PARSER - Token {str(self.t)} can't start a statement.", self.t.start).throw()
+
+    def make_var_decl(self, base_token: Token, size: int, signed: bool):
+        iden = self.consume(TT_IDEN)
+        semi_or_assign = self.consume(TT_SEMI, TT_ASSIGN)
+
+        if semi_or_assign.t == TT_SEMI:
+            return VariableDeclarationNode(base_token.start, semi_or_assign.end, VariableData(iden.v, size, signed))
+
+        # user has `=` after identifier
+
+        expr = self.make_expr()
+
+        end_pos = self.consume(TT_SEMI).end
+
+        return VariableDeclarationNode(base_token.start, end_pos, VariableData(iden.v, 1, False, expr))
+
+    def make_expr(self):
+        return self.make_com_ops()
+
+    def make_bin_op(self, get_sub_method, *allowed_ops: str):
+        left = get_sub_method()
+
+        while self.t is not None:
+            if self.t.t not in allowed_ops:
+                break
+
+            op = self.t
+            self.advance()
+
+            right = get_sub_method()
+            left = BinOpNone(left.start_pos, right.end_pos, left, right, op)
+
+        return left
+
+    def make_com_ops(self):
+        return self.make_bin_op(self.make_mul_div_mod, TT_EQUAL, TT_LESSER, TT_GREATER)
+
+    def make_mul_div_mod(self):
+        return self.make_bin_op(self.make_add_sub, TT_MUL, TT_DIV, TT_MOD)
+
+    def make_add_sub(self):
+        return self.make_bin_op(self.make_factor, TT_PLUS, TT_MINUS)
+
+    def make_factor(self):
+        if self.t.t == TT_INT:
+            t = self.t
+            self.advance()
+            return LiteralIntNode(t.start, t.end, t.v)
+        if self.t.t == TT_LPAREN:
+            op = self.t
+            self.advance()
+            expr = self.make_expr()
+            cp = self.consume(TT_RPAREN)
+            expr.start_pos = op.start
+            expr.end_pos = cp.end
+            return expr
+        if self.t.t == TT_IDEN:
+            t = self.t
+            self.advance()
+            if self.t is not None:
+                if self.t.t == TT_LPAREN:
+                    self.advance()
+                    rparen = self.consume(TT_RPAREN)
+
+                    return FunctionCallNode(t.start, rparen.end, t.v)
+            return VariableReferenceNode(t.start, t.end, t.v)
+
+        if self.t.t == TT_KW_LOC:
+            t = self.t
+            self.advance()
+
+            self.consume(TT_LPAREN)
+            iden = self.consume(TT_IDEN)
+            self.consume(TT_RPAREN)
+
+            return LocationOfSymbolNode(t.start, iden.end, iden.v)
+
+        elif self.t.t == TT_KW_RES:
+            t = self.t
+            self.advance()
+
+            self.consume(TT_LPAREN)
+            expr = self.make_expr()
+            self.consume(TT_RPAREN)
+
+            return ResolveLocationNode(t.start, expr.end_pos, expr)
+
+        elif self.t.t == TT_KW_WRT:
+            t = self.t
+            self.advance()
+
+            self.consume(TT_LPAREN)
+            loc = self.make_expr()
+            self.consume(TT_COMMA)
+            value = self.make_expr()
+            end = self.consume(TT_RPAREN).end
+
+            return WriteLocationNode(t.start, end, loc, value)
+        
+        CompilerError(f"PARSER - Unexpected token in factor {str(self.t)}.", self.t.start)
+
+    def consume(self, *types: str):
+        t = self.t
+
+        allowed = ", ".join(
+            map(
+                lambda a: a.upper(),
+                types
+            )
+        )
+
+        if self.t is None:
+            if len(types) > 1:
+                CompilerError(f"PARSER - Expected any of: {allowed}", self.t_epos).throw()
+            
+            CompilerError(f"PARSER - Expected {allowed}", self.t_epos).throw()
+
+        if self.t.t not in types:
+            if len(types) > 1:
+                CompilerError(f"PARSER - Expected any of: {allowed}", self.t_epos).throw()
+            
+            CompilerError(f"PARSER - Expected {allowed}", self.t_epos).throw()
+
+        self.advance()
+        return t
+
 if __name__ == "__main__":
     from sys import argv
     args = argv[1:]
@@ -320,11 +825,32 @@ if __name__ == "__main__":
                 lexer = Lexer(f.read(), ifile)
                 tokens += lexer.get_tokens()
         except:
-            error = CompilerError(CERR_FAILED_FILE_READ, f"Failed to read file {repr(ifile)}.", None)
+            error = CompilerError(f"PREPROCESSOR - Failed to read file {repr(ifile)}.", None)
 
-    if verbose: print(", ".join(
-        map(
-            lambda a: str(a),
-            tokens
-        )
-    ))
+    if verbose:
+        print(", ".join(
+            map(
+                lambda a: str(a),
+                tokens
+            )
+        ))
+
+    parser = Parser(tokens)
+
+    ast = parser.get_ast()
+
+    no_opt_ast = str(ast).split("\n")
+
+    ast.optimize()
+
+    opt_ast = str(ast).split("\n")
+
+    BAR_WIDTH = 100
+
+    print(" Unoptimized ".center(BAR_WIDTH, "=") + " │ " + " Optimized ".center(BAR_WIDTH, "="))
+
+    for i in range(max(len(no_opt_ast), len(opt_ast))):
+        if i < len(no_opt_ast): print(no_opt_ast[i] + " " * (BAR_WIDTH - len(no_opt_ast[i].replace("\x1b[90m", "").replace("\x1b[0m", ""))), end=" │ ")
+        else: print(" " * BAR_WIDTH, end=" │ ")
+        if i < len(opt_ast): print(no_opt_ast[i] + " " * (BAR_WIDTH - len(opt_ast[i].replace("\x1b[90m", "").replace("\x1b[0m", ""))))
+        else: print(" " * BAR_WIDTH)
