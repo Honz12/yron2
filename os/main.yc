@@ -1,0 +1,9 @@
+func main() {
+	putc('F');
+	putc('u');
+	putc('n');
+	putc('g');
+	putc('O');
+	putc('S');
+	putc('\n');
+}

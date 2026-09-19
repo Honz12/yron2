@@ -13,6 +13,7 @@ TT_DIR_DUMP8 = "dir-dump8"
 TT_DIR_DUMP16 = "dir-dump16"
 TT_DIR_DUMP32 = "dir-dump32"
 TT_DIR_ORG = "dir-org"
+TT_DIR_FILL = "dir-fill"
 
 IA_1B = "1 byte"
 IA_2B = "2 bytes"
@@ -103,6 +104,8 @@ DIRECTIVES = {
     "dump32": TT_DIR_DUMP32,
 
     "org": TT_DIR_ORG,
+
+    "fill": TT_DIR_FILL,
 }
 
 @dataclass
@@ -445,6 +448,17 @@ class CodeGenerator:
                     while len(out) < self.t.v:
                         out.append(0x00)
                 
+                self.advance()
+            elif self.t.t == TT_DIR_FILL:
+                self.advance()
+
+                if self.t is None:
+                    print("Expected constant after FILL")
+                    return
+
+                if self.t.t == TT_CONST:
+                    out += [0x00 for _ in range(self.t.v)]
+
                 self.advance()
             else:
                 print(f"UNKNOWN TOKEN {repr(self.t.t)}:{repr(self.t.v)}")

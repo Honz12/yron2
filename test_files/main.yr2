@@ -1,7 +1,0 @@
-; ----------------------------
-; ENTRY POINT
-; main
-;
-main:
-    jmp halt
-

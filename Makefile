@@ -9,12 +9,13 @@ build/exe: build/ src/main.c
 build/:
 	mkdir build
 
+cbuild/main.bin: cbuild/main.yr2 os/kernel.yr2
+	$(PYTHON) assembler.py cbuild
+
+cbuild/main.yr2: os/main.yc
+
 run: build/exe test-code
 	./build/exe test_files/out.bin
 
 clean:
 	rm build/ -fr
-
-test-code:
-	$(PYTHON) compiler.py test_files/main.yc -o test_files/main.yr2 --include-std-code false
-	$(PYTHON) assembler.py test_files/kernel.yr2 test_files/main.yr2 -o test_files/out.bin

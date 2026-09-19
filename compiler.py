@@ -789,9 +789,18 @@ class Scope:
 
 PROGRAM_ENTRY_FUNCTION = "main"
 
+NEEDED_CODE = f"""
+jmp {PROGRAM_ENTRY_FUNCTION}
+
+; [VARIABLES]
+
+"""
+
 STD_CODE = f"""
 ldi32 0x01 0xFFFF
 jmp {PROGRAM_ENTRY_FUNCTION}
+
+; [VARIABLES]
 
 ; ----------------------------
 ; JUMP POINT
@@ -876,8 +885,17 @@ class CodeGenerator:
     def __init__(self):
         self.scope = Scope([])
         self.allocator_location = 0
-        self.generated = STD_CODE if OPT_INCLUDE_STD_CODE else ""
+        self.generated = STD_CODE if OPT_INCLUDE_STD_CODE else NEEDED_CODE
         self.current_indent = 0
+        self.verb_output = ""
+
+    def get_compiled(self, node: AstNode):
+        err = self.generate(node)
+        self.generated = self.generated.replace(
+            "; [VARIABLES]",
+            f"fill {self.allocator_location}"
+        )
+        return self.generated, err
 
     def push_scope(self):
         self.scope = Scope([], self.scope)
@@ -898,7 +916,7 @@ class CodeGenerator:
         self.current_indent += i
     
     def display_compile_process(self, s: str):
-        print(AstNode.format_as_child(s), end="")
+        self.verb_output += AstNode.format_as_child(s)
 
     def generate(self, node: AstNode=0) -> CompilerError | None:
         method_name = f"gen_{type(node).__name__}"
@@ -1107,20 +1125,21 @@ if __name__ == "__main__":
     else:
         ast.optimize()
 
-    print(repr(ast))
-
     code_gen = CodeGenerator()
 
-    print("COMPILING PROCESS", end="")
-    cgen_error = code_gen.generate(ast)
+    generated, cgen_error = code_gen.get_compiled(ast)
+    if verbose:
+        print("COMPILING OUTPUT", end="")
+        print(code_gen.verb_output)
+        print("FINISHED WITH ERROR" if cgen_error else "FINISHED SUCCESFULLY")
 
     if cgen_error:
         print("\n")
         cgen_error.throw()
 
-    print("\n")
-    print(" CODE GENERATED ".center(TERMINAL_WIDTH, "="))
-    print(code_gen.generated)
+    if verbose:
+        print("\n")
+        print(" CODE GENERATED ".center(TERMINAL_WIDTH, "="))
 
     with open(output_file, "w") as f:
-        f.write(code_gen.generated)
+        f.write(generated)

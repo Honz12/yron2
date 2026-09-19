@@ -1,0 +1,26 @@
+
+jmp main
+
+fill 0
+
+; ----------------------------
+; ENTRY POINT
+; main
+;
+main:
+    ldi32 0x10 70
+    call putc
+    ldi32 0x10 117
+    call putc
+    ldi32 0x10 110
+    call putc
+    ldi32 0x10 103
+    call putc
+    ldi32 0x10 79
+    call putc
+    ldi32 0x10 83
+    call putc
+    ldi32 0x10 10
+    call putc
+    jmp halt
+
