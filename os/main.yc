@@ -1,9 +1,5 @@
 func main() {
-	putc('F');
-	putc('u');
-	putc('n');
-	putc('g');
-	putc('O');
-	putc('S');
-	putc('\n');
+	u32 welcome_message_pointer = alc(16, 'A', 'H', 'O', 'J');
+
+	putc(res8(welcome_message_pointer));
 }

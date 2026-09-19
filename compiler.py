@@ -42,9 +42,9 @@ TT_KW_ELSE = "kw_else"
 TT_KW_WHILE = "kw_while"
 TT_KW_RETURN = "kw_return"
 
-TT_KW_LOC = "lw_loc"
-TT_KW_RES = "lw_res"
-TT_KW_WRT = "lw_wrt"
+TT_KW_LOC = "kw_loc"
+
+TT_KW_ALC = "kw_alc"
 
 @dataclass
 class Token:
@@ -102,6 +102,8 @@ KEYWORD_MAP = {
     "return": TT_KW_RETURN,
 
     "loc": TT_KW_LOC,
+
+    "alc": TT_KW_ALC,
 }
 
 SYMBOL_MAP = {
@@ -345,6 +347,9 @@ class AstNode:
     def optimize(self):
         return self
 
+    def force_optimize(self):
+        return self
+
 @dataclass
 class LiteralIntNode(AstNode):
     number: int
@@ -395,6 +400,38 @@ class BinOpNone(AstNode):
             if self.optok.t == TT_MUL and self.right.number == 0:
                 return LiteralIntNode(self.start_pos, self.end_pos, 0)
         return super().optimize()
+
+    def force_optimize(self):
+        self.left = self.left.optimize()
+        self.right = self.right.optimize()
+        
+        if isinstance(self.left, LiteralIntNode) and isinstance(self.right, LiteralIntNode):
+            if self.optok.t == TT_PLUS:
+                return LiteralIntNode(self.start_pos, self.end_pos, self.left.number + self.right.number)
+            if self.optok.t == TT_MINUS:
+                return LiteralIntNode(self.start_pos, self.end_pos, self.left.number - self.right.number)
+            if self.optok.t == TT_MUL:
+                return LiteralIntNode(self.start_pos, self.end_pos, self.left.number * self.right.number)
+            if self.optok.t == TT_DIV:
+                return LiteralIntNode(self.start_pos, self.end_pos, self.left.number // self.right.number if self.right.number != 0 else 0)
+            if self.optok.t == TT_MOD:
+                return LiteralIntNode(self.start_pos, self.end_pos, self.left.number % self.right.number)
+            if self.optok.t == TT_EQUAL:
+                return LiteralIntNode(self.start_pos, self.end_pos, 1 if self.left.number == self.right.number else 0)
+            if self.optok.t == TT_LESSER:
+                return LiteralIntNode(self.start_pos, self.end_pos, 1 if self.left.number > self.right.number else 0)
+            if self.optok.t == TT_GREATER:
+                return LiteralIntNode(self.start_pos, self.end_pos, 1 if self.left.number < self.right.number else 0)
+            
+        if isinstance(self.left, LiteralIntNode) and isinstance(self.right, VariableReferenceNode):
+            if self.optok.t == TT_MUL and self.left.number == 0:
+                return LiteralIntNode(self.start_pos, self.end_pos, 0)
+            
+        if isinstance(self.left, VariableReferenceNode) and isinstance(self.right, LiteralIntNode):
+            if self.optok.t == TT_MUL and self.right.number == 0:
+                return LiteralIntNode(self.start_pos, self.end_pos, 0)
+        return super().optimize()
+
 
 @dataclass
 class ProgramNode(AstNode):
@@ -533,6 +570,11 @@ class IfStatementNode(AstNode):
                 return ProgramNode(self.start_pos, self.end_pos, [])
         return super().optimize()
 
+@dataclass
+class AllocateSpaceNode(AstNode):
+    space: AstNode
+    cells: list[AstNode]
+
 VARIBLE_TYPES = {
     TT_KW_U8: (1, False),
     TT_KW_U16: (2, False),
@@ -647,7 +689,7 @@ class Parser:
 
             return block
 
-        elif base_token.t in (TT_INT, TT_LPAREN, TT_IDEN, TT_KW_LOC):
+        elif base_token.t in (TT_INT, TT_LPAREN, TT_IDEN, TT_KW_LOC, TT_KW_ALC):
             expr = self.make_expr()
             self.consume(TT_SEMI)
             return expr
@@ -738,9 +780,30 @@ class Parser:
 
             self.consume(TT_LPAREN)
             iden = self.consume(TT_IDEN)
-            self.consume(TT_RPAREN)
+            end = self.consume(TT_RPAREN).end
 
-            return LocationOfSymbolNode(t.start, iden.end, iden.v)
+            return LocationOfSymbolNode(t.start, end, iden.v)
+
+        if self.t.t == TT_KW_ALC:
+            t = self.t
+            self.advance()
+
+            self.consume(TT_LPAREN)
+            expr = self.make_expr().force_optimize()
+
+            values = []
+
+            while self.t is not None:
+                if self.t.t != TT_COMMA:
+                    break
+                self.consume(TT_COMMA)
+
+                byte = self.make_expr().force_optimize()
+                values.append(byte)
+
+            end = self.consume(TT_RPAREN).end
+
+            return AllocateSpaceNode(t.start, end, expr, values)
         
         CompilerError(f"PARSER - Unexpected token in factor {str(self.t)}.", self.t.start)
 
@@ -797,7 +860,6 @@ jmp {PROGRAM_ENTRY_FUNCTION}
 """
 
 STD_CODE = f"""
-ldi32 0x01 0xFFFF
 jmp {PROGRAM_ENTRY_FUNCTION}
 
 ; [VARIABLES]
@@ -884,7 +946,7 @@ wrt32:
 class CodeGenerator:
     def __init__(self):
         self.scope = Scope([])
-        self.allocator_location = 0
+        self.allocator_bytes = []
         self.generated = STD_CODE if OPT_INCLUDE_STD_CODE else NEEDED_CODE
         self.current_indent = 0
         self.verb_output = ""
@@ -893,7 +955,7 @@ class CodeGenerator:
         err = self.generate(node)
         self.generated = self.generated.replace(
             "; [VARIABLES]",
-            f"fill {self.allocator_location}"
+            "\n".join([f"d8 {hex(b)}" for b in self.allocator_bytes])
         )
         return self.generated, err
 
@@ -905,8 +967,8 @@ class CodeGenerator:
 
     def allocate_variable(self, data: VariableData):
         self.display_compile_process("ALLOCATING VARIABLE" + AstNode.format_as_child(data, True))
-        r = VariableSymbol(data, self.allocator_location)
-        self.allocator_location += data.size
+        r = VariableSymbol(data, len(self.allocator_bytes) + 0x05)
+        self.allocator_bytes += [0x00 for _ in range(data.size)]
         return r
 
     def append(self, *values: str):
@@ -994,6 +1056,14 @@ class CodeGenerator:
                 symbol.position = node.start_pos
                 return symbol
             self.append("ldi32 ", hex(reg), " ", symbol.location)
+        elif isinstance(node, AllocateSpaceNode):
+            space = node.space
+
+            if not isinstance(space, LiteralIntNode):
+                return CompilerError("CODE GEN - Expected argument of alc(...) to be LiteralInt.", space.start_pos)
+            
+            self.append("ldi32 ", hex(reg), " ", hex(len(self.allocator_bytes) + 0x05))
+            self.allocator_bytes += [((node.cells[i].number if isinstance(node.cells[i], LiteralIntNode) else 0x00) if i < len(node.cells) else 0x00) for i in range(space.number)]
         else:
             return CompilerError(f"CODE GEN - AST node {type(node).__name__} can't be an expression.", node.start_pos)
 
