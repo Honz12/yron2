@@ -27,7 +27,6 @@ ljmp 0x800 0
 ; CODE
 
 halt:
-    d8 0xFF
     jmp halt
 
 ; INTERRUPT HANDLERS
@@ -56,6 +55,10 @@ puts_int:
 putu_int:
     call putu
     iret
+; -----------------------
+getc_int:
+	call getc
+	iret
 
 ; KERNEL FUNCTIONS
 
@@ -305,5 +308,6 @@ d32 halt        ; 0x10
 d32 putc_int    ; 0x11
 d32 puts_int    ; 0x12
 d32 putu_int    ; 0x13
+d32 getc_int    ; 0x14
 
 org 0x0800

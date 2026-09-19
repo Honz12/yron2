@@ -9,6 +9,7 @@ putc:
     ret
 
 puts:
+	add 0x10 0x02 0x10
     int 0x12
     ret
 
@@ -16,10 +17,18 @@ putu:
     int 0x13
     ret
 
+getc:
+	push32 0x10
+	int 0x14
+	mov 0x10 0x1f
+	pop32 0x10
+	ret
+
 ; ======= OTHER =======
 
-get_ms:
+get_MS:
     mov 0x02 0x1f
+    ret
 
 ; ----------------------------
 ; FUNCTION

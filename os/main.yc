@@ -1,5 +1,26 @@
+u32 free_space = 0xffff;
+
+func malloc(u32 size) {
+	u32 ret = free_space;
+	free_space = free_space + size;
+	return ret;
+}
+
 func main() {
-	u32 welcome_message_pointer = alc(5, 'A', 'H', 'O', 'J');
+	u32 welcome_message_pointer =
+		alc(5, 'A', 'H', 'O', 'J');
+	
+	puts(welcome_message_pointer);
+
+	getc();
+
+	dc('\n');
 
 	puts(welcome_message_pointer);
+
+	putu(malloc(100));
+}
+
+func dc(u8 c) {
+	putc(c);
 }

@@ -319,7 +319,7 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data) {
             }
             break;
         
-        case 0x04: // RET
+        case 0x04: // IRET
             {
                 uint32_t dest_pc;
                 uint32_t dest_ms;
@@ -1019,7 +1019,8 @@ int main(int argc, char *argv[]) {
         [0x01] = "CALL",
         [0x02] = "RET",
         [0x03] = "INT",
-        [0x04] = "MOV",
+        [0x04] = "IRET",
+        [0x05] = "MOV",
 
         [0x08] = "PUSH8",
         [0x09] = "PUSH16",

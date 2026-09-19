@@ -571,9 +571,23 @@ class IfStatementNode(AstNode):
         return super().optimize()
 
 @dataclass
+class WhileStatementNode(AstNode):
+    condition: AstNode
+    block: ProgramNode
+
+@dataclass
 class AllocateSpaceNode(AstNode):
     space: AstNode
     cells: list[AstNode]
+
+@dataclass
+class ReturnStatementNode(AstNode):
+    value: AstNode | None
+
+@dataclass
+class AssignStatementNode(AstNode):
+    name: str
+    value: AstNode
 
 VARIBLE_TYPES = {
     TT_KW_U8: (1, False),
@@ -638,7 +652,33 @@ class Parser:
                     self.advance()
                     else_branch = self.make_statement()
 
-            return IfStatementNode(base_token.start, (else_branch if else_branch else if_branch).end_pos, condition, if_branch, else_branch)
+            return IfStatementNode(
+                base_token.start,
+                (
+                    else_branch if else_branch else if_branch
+                ).end_pos,
+                condition,
+                if_branch,
+                else_branch
+            )
+
+        elif base_token.t == TT_KW_WHILE:
+            self.advance()
+
+            self.consume(TT_LPAREN)
+
+            condition = self.make_expr()
+
+            self.consume(TT_RPAREN)
+
+            block = self.make_statement()
+
+            return WhileStatementNode(
+                base_token.start,
+                block.end_pos,
+                condition,
+                block
+            )
 
         elif base_token.t == TT_KW_FUNC:
             self.advance()
@@ -688,6 +728,27 @@ class Parser:
                 CompilerError("PARSER - Expected `}` after code block", self.t_epos).throw()
 
             return block
+
+        elif base_token.t == TT_KW_RETURN:
+            self.advance()
+
+            expr = self.make_expr()
+
+            end = self.consume(TT_SEMI).end
+
+            return ReturnStatementNode(base_token.start, end, expr)
+
+        elif (base_token.t == TT_IDEN) and (self.tokens[self.i + 1].t == TT_ASSIGN) if self.i + 1 < len(self.tokens):
+            self.advance()
+            self.consume(TT_ASSIGN)
+            expr = self.make_expr()
+
+            return AssignStatementNode(
+                base_token.start,
+                expr.end_pos,
+                base_token.v,
+                expr
+            )
 
         elif base_token.t in (TT_INT, TT_LPAREN, TT_IDEN, TT_KW_LOC, TT_KW_ALC):
             expr = self.make_expr()
@@ -836,6 +897,7 @@ class Parser:
 class VariableSymbol:
     data: VariableData
     location: int
+    register: bool = False
 
 @dataclass
 class Scope:
@@ -993,11 +1055,23 @@ class CodeGenerator:
         self.append(";")
         self.append(node.name, ":")
         self.indent(1)
+        self.push_scope()
+        
+        for i, arg in enumerate(node.args):
+            self.scope.symbols.append(
+                VariableSymbol(
+                    arg,
+                    i + 0x10,
+                    True
+                )
+            )
+        
         body_err = self.generate(node.body)
         if node.name == PROGRAM_ENTRY_FUNCTION:
             self.append("jmp halt")
         else:
             self.append("ret")
+        self.pop_scope()
         self.indent(-1)
         self.append()
         return body_err
@@ -1012,12 +1086,16 @@ class CodeGenerator:
                 symbol.position = node.start_pos
                 return symbol
             if isinstance(symbol, VariableSymbol):
-                if symbol.data.size == 1:
-                    self.append("ld8 ", hex(reg), " ", hex(symbol.location))
-                if symbol.data.size == 2:
-                    self.append("ld16 ", hex(reg), " ", hex(symbol.location))
-                if symbol.data.size == 4:
-                    self.append("ld32 ", hex(reg), " ", hex(symbol.location))
+                if symbol.register:
+                    if symbol.location != reg:
+                        self.append("mov ", hex(symbol.location), " ", hex(reg))
+                else:
+                    if symbol.data.size == 1:
+                        self.append("ld8 ", hex(reg), " ", hex(symbol.location))
+                    if symbol.data.size == 2:
+                        self.append("ld16 ", hex(reg), " ", hex(symbol.location))
+                    if symbol.data.size == 4:
+                        self.append("ld32 ", hex(reg), " ", hex(symbol.location))
         elif isinstance(node, BinOpNone):
             gerr = self.resolve_expr_into_reg(node.left, 0x0d)
             if gerr: return gerr
@@ -1076,6 +1154,33 @@ class CodeGenerator:
             if allocated.data.size == 4:
                 self.append("st32 ", hex(0x0f), " ", hex(allocated.location))
         self.append()
+
+    def gen_ReturnStatementNode(self, node: ReturnStatementNode):
+        if node.value:
+            self.resolve_expr_into_reg(node.value, 0x1f)
+        self.append("ret")
+
+    def gen_AssignStatementNode(self, node: AssignStatementNode):
+        self.resolve_expr_into_reg(node.value, 0x0f)
+        symbol = self.scope.search_for_symbol(node.name)
+        if isinstance(symbol, CompilerError):
+            symbol.position = node.start_pos
+        if isinstance(symbol, VariableSymbol):
+            if symbol.register:
+                self.append("mov 0x0f ", hex(symbol.location))
+            else:
+                if symbol.data.size == 1:
+                    self.append("st8 ",
+                        hex(0x0f), " ",
+                        hex(symbol.data.location))
+                if symbol.data.size == 2:
+                    self.append("st16 ",
+                        hex(0x0f), " ",
+                        hex(symbol.data.location))
+                if symbol.data.size == 4:
+                    self.append("st32 ",
+                        hex(0x0f), " ",
+                        hex(symbol.data.location))
 
 if __name__ == "__main__":
     from sys import argv

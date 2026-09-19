@@ -24,9 +24,12 @@ cbuild/main.yr2: os/main.yc cbuild/
 cbuild/:
 	mkdir cbuild
 
-run: build/exe cbuild/rom.bin
+run: rm_cb build/exe cbuild/rom.bin
 	./build/exe cbuild/rom.bin
 
 clean:
 	rm build/ -fr
+	rm cbuild/ -fr
+
+rm_cb:
 	rm cbuild/ -fr
