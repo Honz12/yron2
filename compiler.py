@@ -40,6 +40,7 @@ TT_KW_FUNC = "kw_func"
 TT_KW_IF = "kw_if"
 TT_KW_ELSE = "kw_else"
 TT_KW_WHILE = "kw_while"
+TT_KW_RETURN = "kw_return"
 
 TT_KW_LOC = "lw_loc"
 TT_KW_RES = "lw_res"
@@ -98,10 +99,9 @@ KEYWORD_MAP = {
     "if": TT_KW_IF,
     "else": TT_KW_ELSE,
     "while": TT_KW_WHILE,
+    "return": TT_KW_RETURN,
 
     "loc": TT_KW_LOC,
-    "res": TT_KW_RES,
-    "wrt": TT_KW_WRT,
 }
 
 SYMBOL_MAP = {
@@ -309,7 +309,6 @@ class VariableData:
     name: str
     size: int
     signed: bool
-    value: AstNode | None = None
 
     def __str__(self):
         o = "VariableData"
@@ -426,21 +425,22 @@ class ProgramNode(AstNode):
 @dataclass
 class VariableDeclarationNode(AstNode):
     data: VariableData
+    value: AstNode | None = None
 
     def __str__(self):
         o = "VariableDeclaration"
         o += self.format_as_child(repr(self.data.name), False, "NAME")
         o += self.format_as_child(f"{self.data.size} bytes", False, "SIZE")
-        if self.data.value:
+        if self.value:
             o += self.format_as_child("SIGNED" if self.data.signed else "UNSIGNED")
-            o += self.format_as_child(self.data.value, True, "VALUE")
+            o += self.format_as_child(self.value, True, "VALUE")
         else:
             o += self.format_as_child("SIGNED" if self.data.signed else "UNSIGNED", True)
         return o
 
     def optimize(self):
-        if self.data.value:
-            self.data.value = self.data.value.optimize()
+        if self.value:
+            self.value = self.value.optimize()
         return super().optimize()
 
 @dataclass
@@ -481,7 +481,14 @@ class FunctionCallNode(AstNode):
 
     def __str__(self):
         o = "FunctionCall"
-        o += self.format_as_child(repr(self.name), True)
+        if len(self.args) > 0:
+            o += self.format_as_child(repr(self.name))
+            args_str = "ARGS"
+            for i, a in enumerate(self.args):
+                args_str += self.format_as_child(a, i == len(self.args) - 1)
+            o += self.format_as_child(args_str, True)
+        else:
+            o += self.format_as_child(repr(self.name), True)
 
         return o
 
@@ -492,28 +499,6 @@ class LocationOfSymbolNode(AstNode):
     def __str__(self):
         o = "LocationOfSymbol"
         o += self.format_as_child(repr(self.name), True)
-
-        return o
-
-@dataclass
-class ResolveLocationNode(AstNode):
-    loc: AstNode
-
-    def __str__(self):
-        o = "ResolveLocation"
-        o += self.format_as_child(self.loc, True)
-
-        return o
-
-@dataclass
-class WriteLocationNode(AstNode):
-    loc: AstNode
-    value: AstNode
-
-    def __str__(self):
-        o = "WriteLocation"
-        o += self.format_as_child(self.loc, False, "LOCATION")
-        o += self.format_as_child(self.value, True, "VALUE")
 
         return o
 
@@ -621,20 +606,22 @@ class Parser:
 
             args: list[VariableData] = []
 
-            while self.t is not None:
-                if self.t.t in VARIBLE_TYPES:
-                    dat = VARIBLE_TYPES[self.t.t]
-                    self.advance()
+            if self.t is not None:
+                if self.t.t != TT_RPAREN:
+                    while self.t is not None:
+                        if self.t.t in VARIBLE_TYPES:
+                            dat = VARIBLE_TYPES[self.t.t]
+                            self.advance()
 
-                    arg_iden = self.consume(TT_IDEN)
+                            arg_iden = self.consume(TT_IDEN)
 
-                    args.append(VariableData(arg_iden.v, dat[0], dat[1]))
-                else:
-                    CompilerError("PARSER - Expected varible type for argument declaration.", self.t.start).throw()
+                            args.append(VariableData(arg_iden.v, dat[0], dat[1]))
+                        else:
+                            CompilerError("PARSER - Expected varible type for argument declaration.", self.t.start).throw()
 
-                if self.t.t != TT_COMMA:
-                    break
-                self.consume(TT_COMMA)
+                        if self.t.t != TT_COMMA:
+                            break
+                        self.consume(TT_COMMA)
 
             self.consume(TT_RPAREN)
 
@@ -659,7 +646,7 @@ class Parser:
 
             return block
 
-        elif base_token.t in (TT_INT, TT_LPAREN, TT_IDEN, TT_KW_LOC, TT_KW_RES, TT_KW_WRT):
+        elif base_token.t in (TT_INT, TT_LPAREN, TT_IDEN, TT_KW_LOC):
             expr = self.make_expr()
             self.consume(TT_SEMI)
             return expr
@@ -680,7 +667,7 @@ class Parser:
 
         end_pos = self.consume(TT_SEMI).end
 
-        return VariableDeclarationNode(base_token.start, end_pos, VariableData(iden.v, 1, False, expr))
+        return VariableDeclarationNode(base_token.start, end_pos, VariableData(iden.v, size, signed), expr)
 
     def make_expr(self):
         return self.make_com_ops()
@@ -728,9 +715,20 @@ class Parser:
             if self.t is not None:
                 if self.t.t == TT_LPAREN:
                     self.advance()
+
+                    args: list[AstNode] = []
+
+                    while self.t is not None:
+                        if self.t.t == TT_RPAREN:
+                            break
+                        args.append(self.make_expr())
+                        if self.t.t != TT_COMMA:
+                            break
+                        self.consume(TT_COMMA)
+
                     rparen = self.consume(TT_RPAREN)
 
-                    return FunctionCallNode(t.start, rparen.end, t.v)
+                    return FunctionCallNode(t.start, rparen.end, args, t.v)
             return VariableReferenceNode(t.start, t.end, t.v)
 
         if self.t.t == TT_KW_LOC:
@@ -742,28 +740,6 @@ class Parser:
             self.consume(TT_RPAREN)
 
             return LocationOfSymbolNode(t.start, iden.end, iden.v)
-
-        elif self.t.t == TT_KW_RES:
-            t = self.t
-            self.advance()
-
-            self.consume(TT_LPAREN)
-            expr = self.make_expr()
-            self.consume(TT_RPAREN)
-
-            return ResolveLocationNode(t.start, expr.end_pos, expr)
-
-        elif self.t.t == TT_KW_WRT:
-            t = self.t
-            self.advance()
-
-            self.consume(TT_LPAREN)
-            loc = self.make_expr()
-            self.consume(TT_COMMA)
-            value = self.make_expr()
-            end = self.consume(TT_RPAREN).end
-
-            return WriteLocationNode(t.start, end, loc, value)
         
         CompilerError(f"PARSER - Unexpected token in factor {str(self.t)}.", self.t.start)
 
@@ -792,9 +768,242 @@ class Parser:
         self.advance()
         return t
 
+@dataclass
+class VariableSymbol:
+    data: VariableData
+    location: int
+
+@dataclass
+class Scope:
+    symbols: list[VariableSymbol]
+    parent: Scope | None = None
+
+    def search_for_symbol(self, name: str):
+        for s in self.symbols:
+            if s.data.name == name:
+                return s
+        if self.parent is None:
+            return CompilerError(f"SCOPE - Can't find symbol {repr(name)}.", None)
+        return self.parent.search_for_symbol(name)
+
+PROGRAM_ENTRY_FUNCTION = "main"
+
+STD_CODE = f"""
+ldi32 0x01 0xFFFF
+jmp {PROGRAM_ENTRY_FUNCTION}
+
+; ----------------------------
+; JUMP POINT
+; halt
+;
+halt:
+    jmp halt
+
+; ----------------------------
+; FUNCTION
+; putc
+;
+putc:
+    push32 0x11
+
+    ldi8 0x11 1
+    snd 0x11 0x10
+
+    pop32 0x11
+    ret
+
+; ----------------------------
+; FUNCTION
+; putc
+;
+putc:
+    push32 0x11
+
+    ldi8 0x11 1
+    snd 0x11 0x10
+
+    pop32 0x11
+    ret
+
+; ----------------------------
+; FUNCTION
+; res8
+;
+res8:
+    ldp8 0x1f 0x10
+    ret
+
+; ----------------------------
+; FUNCTION
+; res16
+;
+res16:
+    ldp16 0x1f 0x10
+    ret
+
+; ----------------------------
+; FUNCTION
+; res32
+;
+res32:
+    ldp32 0x1f 0x10
+    ret
+
+; ----------------------------
+; FUNCTION
+; wrt8
+;
+wrt8:
+    stp8 0x10 0x11
+
+; ----------------------------
+; FUNCTION
+; wrt16
+;
+wrt16:
+    stp16 0x10 0x11
+
+; ----------------------------
+; FUNCTION
+; wrt32
+;
+wrt32:
+    stp32 0x10 0x11
+""".strip() + "\n\n"
+
+class CodeGenerator:
+    def __init__(self, include_standard_code=True):
+        self.scope = Scope([])
+        self.allocator_location = 0
+        self.generated = STD_CODE if include_standard_code else ""
+        self.current_indent = 0
+
+    def push_scope(self):
+        self.scope = Scope([], self.scope)
+
+    def pop_scope(self):
+        self.scope = self.scope.parent
+
+    def allocate_variable(self, data: VariableData):
+        self.display_compile_process("ALLOCATING VARIABLE" + AstNode.format_as_child(data, True))
+        r = VariableSymbol(data, self.allocator_location)
+        self.allocator_location += data.size
+        return r
+
+    def append(self, *values: str):
+        self.generated += (" " * self.current_indent * 4) + "".join(map(str, values)) + "\n"
+
+    def indent(self, i):
+        self.current_indent += i
+    
+    def display_compile_process(self, s: str):
+        print(AstNode.format_as_child(s), end="")
+
+    def generate(self, node: AstNode=0) -> CompilerError | None:
+        method_name = f"gen_{type(node).__name__}"
+        self.display_compile_process("COMPILING NODE" + AstNode.format_as_child(method_name, True))
+        generator = getattr(self, method_name, self.generic_gen)
+        return generator(node)
+
+    def generic_gen(self, node: AstNode):
+        return CompilerError(f"CODE GEN - AST node {type(node).__name__} has no compilation handler.", node.start_pos)
+
+    def gen_ProgramNode(self, node: ProgramNode):
+        self.push_scope()
+        for s in node.statements:
+            err = self.generate(s)
+            if err: return err
+        self.pop_scope()
+
+    def gen_FunctionDeclarationNode(self, node: FunctionDeclarationNode):
+        self.append("; ".ljust(30, "-"))
+        if node.name == PROGRAM_ENTRY_FUNCTION:
+            self.append("; ENTRY POINT")
+        else:
+            self.append("; FUNCTION")
+        self.append("; ", node.name)
+        self.append(";")
+        self.append(node.name, ":")
+        self.indent(1)
+        body_err = self.generate(node.body)
+        if node.name == PROGRAM_ENTRY_FUNCTION:
+            self.append("jmp halt")
+        else:
+            self.append("ret")
+        self.indent(-1)
+        self.append()
+        return body_err
+
+    def resolve_expr_into_reg(self, node: AstNode, reg: int):
+        if isinstance(node, LiteralIntNode):
+            self.append("ldi32 ", hex(reg), " ", node.number)
+        elif isinstance(node, VariableReferenceNode):
+            symbol = self.scope.search_for_symbol(node.name)
+
+            if isinstance(symbol, CompilerError):
+                symbol.position = node.start_pos
+                return symbol
+            if isinstance(symbol, VariableSymbol):
+                if symbol.data.size == 1:
+                    self.append("ld8 ", hex(reg), " ", hex(symbol.location))
+                if symbol.data.size == 2:
+                    self.append("ld16 ", hex(reg), " ", hex(symbol.location))
+                if symbol.data.size == 4:
+                    self.append("ld32 ", hex(reg), " ", hex(symbol.location))
+        elif isinstance(node, BinOpNone):
+            gerr = self.resolve_expr_into_reg(node.left, 0x0d)
+            if gerr: return gerr
+
+            if isinstance(node.right, BinOpNone):
+                self.append("push32 0x0d")
+
+            gerr = self.resolve_expr_into_reg(node.right, 0x0e)
+            if gerr: return gerr
+
+            if isinstance(node.right, BinOpNone):
+                self.append("pop32 0x0d")
+
+            self.append("add 0x0d 0x0e ", hex(reg))
+        elif isinstance(node, FunctionCallNode):
+            gerr = self.generate(node)
+            if gerr: return gerr
+
+            if reg != 0x1f: self.append("mov 0x1f ", hex(reg))
+        elif isinstance(node, LocationOfSymbolNode):
+            symbol = self.scope.search_for_symbol(node.name)
+            if isinstance(symbol, CompilerError):
+                symbol.position = node.start_pos
+                return symbol
+            self.append("ldi32 ", hex(reg), " ", symbol.location)
+        else:
+            return CompilerError(f"CODE GEN - AST node {type(node).__name__} can't be an expression.", node.start_pos)
+
+    def gen_FunctionCallNode(self, node: FunctionCallNode):
+        for i, a in enumerate(node.args):
+            gerr = self.resolve_expr_into_reg(a, i + 0x10)
+            if gerr:
+                return gerr
+        self.append("call ", node.name)
+    
+    def gen_VariableDeclarationNode(self, node: VariableDeclarationNode):
+        allocated = self.allocate_variable(node.data)
+        self.append()
+        self.append("; Variable ", repr(node.data.name), " declaration, allocated to ", hex(allocated.location))
+        if node.value is not None:
+            self.scope.symbols.append(allocated)
+            gerr = self.resolve_expr_into_reg(node.value, 0x0f)
+            if gerr: return gerr
+            if allocated.data.size == 1:
+                self.append("st8 ", hex(0x0f), " ", hex(allocated.location))
+            if allocated.data.size == 2:
+                self.append("st16 ", hex(0x0f), " ", hex(allocated.location))
+            if allocated.data.size == 4:
+                self.append("st32 ", hex(0x0f), " ", hex(allocated.location))
+        self.append()
+
 if __name__ == "__main__":
     from sys import argv
-    args = argv[1:]
+    command_line_args = argv[1:]
 
     input_files = []
     output_file = "out.bin"
@@ -803,7 +1012,7 @@ if __name__ == "__main__":
 
     setting_out = False
 
-    for a in args:
+    for a in command_line_args:
         if setting_out:
             output_file = a
             setting_out = False
@@ -839,18 +1048,48 @@ if __name__ == "__main__":
 
     ast = parser.get_ast()
 
-    no_opt_ast = str(ast).split("\n")
+    TERMINAL_WIDTH = 60
 
-    ast.optimize()
+    if verbose:
+        no_opt_ast = str(ast)
 
-    opt_ast = str(ast).split("\n")
+        ast.optimize()
 
-    BAR_WIDTH = 100
+        opt_ast = str(ast)
+        PAGES = True
 
-    print(" Unoptimized ".center(BAR_WIDTH, "=") + " │ " + " Optimized ".center(BAR_WIDTH, "="))
+        if PAGES:
+            no_opt_ast = no_opt_ast.split("\n")
+            opt_ast = opt_ast.split("\n")
+            print(" Unoptimized ".center((TERMINAL_WIDTH - 4) // 2, "=") + " │ " + " Optimized ".center((TERMINAL_WIDTH - 4) // 2, "="))
 
-    for i in range(max(len(no_opt_ast), len(opt_ast))):
-        if i < len(no_opt_ast): print(no_opt_ast[i] + " " * (BAR_WIDTH - len(no_opt_ast[i].replace("\x1b[90m", "").replace("\x1b[0m", ""))), end=" │ ")
-        else: print(" " * BAR_WIDTH, end=" │ ")
-        if i < len(opt_ast): print(no_opt_ast[i] + " " * (BAR_WIDTH - len(opt_ast[i].replace("\x1b[90m", "").replace("\x1b[0m", ""))))
-        else: print(" " * BAR_WIDTH)
+            for i in range(max(len(no_opt_ast), len(opt_ast))):
+                if i < len(no_opt_ast): print(no_opt_ast[i] + " " * (TERMINAL_WIDTH - len(no_opt_ast[i].replace("\x1b[90m", "").replace("\x1b[0m", ""))), end=" │ ")
+                else: print(" " * TERMINAL_WIDTH, end=" │ ")
+                if i < len(opt_ast): print(no_opt_ast[i] + " " * (TERMINAL_WIDTH - len(opt_ast[i].replace("\x1b[90m", "").replace("\x1b[0m", ""))))
+                else: print(" " * TERMINAL_WIDTH)
+        else:
+            print(" Unoptimized ".center(TERMINAL_WIDTH, "="))
+            print(no_opt_ast)
+            print("\n" + " Optimized ".center(TERMINAL_WIDTH, "="))
+            print(opt_ast)
+    else:
+        ast.optimize()
+
+    print(repr(ast))
+
+    code_gen = CodeGenerator()
+
+    print("COMPILING PROCESS", end="")
+    cgen_error = code_gen.generate(ast)
+
+    if cgen_error:
+        print("\n")
+        cgen_error.throw()
+
+    print("\n")
+    print(" CODE GENERATED ".center(TERMINAL_WIDTH, "="))
+    print(code_gen.generated)
+
+    with open(output_file, "w") as f:
+        f.write(code_gen.generated)

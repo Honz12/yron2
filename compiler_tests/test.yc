@@ -1,3 +1,17 @@
-func multiply(u32 store, u32 a, u32 b) {
-    wrt(store, a + b);
+func main() {
+    say_hello();
+
+    u32 a = '\n';
+
+    putc(res32(loc(a)));
+}
+
+func say_hello() {
+    putc('H');
+    putc('E');
+    {
+        putc('L');
+        putc('L');
+    }
+    putc('O');
 }

@@ -1,0 +1,114 @@
+jmp main
+
+; ----------------------------
+; JUMP POINT
+; halt
+;
+halt:
+    jmp halt
+
+; ----------------------------
+; FUNCTION
+; putc
+;
+putc:
+    push32 0x11
+
+    ldi8 0x11 1
+    snd 0x11 0x10
+
+    pop32 0x11
+    ret
+
+; ----------------------------
+; FUNCTION
+; putc
+;
+putc:
+    push32 0x11
+
+    ldi8 0x11 1
+    snd 0x11 0x10
+
+    pop32 0x11
+    ret
+
+; ----------------------------
+; FUNCTION
+; res8
+;
+res8:
+    ldp8 0x1f 0x10
+    ret
+
+; ----------------------------
+; FUNCTION
+; res16
+;
+res16:
+    ldp16 0x1f 0x10
+    ret
+
+; ----------------------------
+; FUNCTION
+; res32
+;
+res32:
+    ldp32 0x1f 0x10
+    ret
+
+; ----------------------------
+; FUNCTION
+; wrt8
+;
+wrt8:
+    stp8 0x10 0x11
+
+; ----------------------------
+; FUNCTION
+; wrt16
+;
+wrt16:
+    stp16 0x10 0x11
+
+; ----------------------------
+; FUNCTION
+; wrt32
+;
+wrt32:
+    stp32 0x10 0x11
+
+; ----------------------------
+; ENTRY POINT
+; main
+;
+main:
+    call say_hello
+    
+    ; Variable 'a' declaration, allocated to 0x0
+    ldi32 0xf 10
+    st32 0xf 0x0
+    
+    ldi32 0x10 0
+    call res32
+    mov 0x1f 0x10
+    call putc
+    jmp halt
+
+; ----------------------------
+; FUNCTION
+; say_hello
+;
+say_hello:
+    ldi32 0x10 72
+    call putc
+    ldi32 0x10 69
+    call putc
+    ldi32 0x10 76
+    call putc
+    ldi32 0x10 76
+    call putc
+    ldi32 0x10 79
+    call putc
+    ret
+
