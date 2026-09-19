@@ -127,6 +127,7 @@ SYMBOL_MAP = {
 OPT_CAN_SIMPLIFY_EXPRESIONS = True
 OPT_CAN_REMOVE_STANDALONE_LITERALS = True
 OPT_CAN_SIMPLIFY_IF_STATEMENTS = True
+OPT_INCLUDE_STD_CODE = True
 
 class Lexer:
     def __init__(self, code: str, file_name: str):
@@ -872,10 +873,10 @@ wrt32:
 """.strip() + "\n\n"
 
 class CodeGenerator:
-    def __init__(self, include_standard_code=True):
+    def __init__(self):
         self.scope = Scope([])
         self.allocator_location = 0
-        self.generated = STD_CODE if include_standard_code else ""
+        self.generated = STD_CODE if OPT_INCLUDE_STD_CODE else ""
         self.current_indent = 0
 
     def push_scope(self):
@@ -1010,14 +1011,44 @@ if __name__ == "__main__":
 
     verbose = False
 
-    setting_out = False
+    multi_arg_mode = ""
 
     for a in command_line_args:
-        if setting_out:
+        if multi_arg_mode == "-o":
             output_file = a
-            setting_out = False
+            multi_arg_mode = ""
+
+        elif multi_arg_mode == "--can-simplify-expresions":
+            OPT_CAN_SIMPLIFY_EXPRESIONS = a in ("True", "true", "1", "t")
+            multi_arg_mode = ""
+
+        elif multi_arg_mode == "--can-remove-standalone":
+            OPT_CAN_REMOVE_STANDALONE_LITERALS = a in ("True", "true", "1", "t")
+            multi_arg_mode = ""
+
+        elif multi_arg_mode == "--can-simplify-if":
+            OPT_CAN_SIMPLIFY_IF_STATEMENTS = a in ("True", "true", "1", "t")
+            multi_arg_mode = ""
+
+        elif multi_arg_mode == "--include-std-code":
+            OPT_INCLUDE_STD_CODE = a in ("True", "true", "1", "t")
+            multi_arg_mode = ""
+
         elif a == "-o":
-            setting_out = True
+            multi_arg_mode = "-o"
+
+        elif a == "--can-simplify-expresions":
+            multi_arg_mode = "--can-simplify-expresions"
+
+        elif a == "--can-remove-standalone":
+            multi_arg_mode = "--can-remove-standalone"
+
+        elif a == "--can-simplify-if":
+            multi_arg_mode = "--can-simplify-if"
+
+        elif a == "--include-std-code":
+            multi_arg_mode = "--include-std-code"
+
         elif a == "-v":
             verbose = True
         else:

@@ -1,24 +1,7 @@
-; must be assembled with kernel.yr2 comming first
-
-; MAIN DATA
-
-main.data:
-    .MESSAGE: str "Welcome to FungOS \0"
-
-; MAIN CODE
-
+; ----------------------------
+; ENTRY POINT
+; main
+;
 main:
-    ldi8 0x11 0
-.loop:
-    inc 0x11
+    jmp halt
 
-    ldi32 0x10 .data.MESSAGE
-    call puts
-
-    mov 0x11 0x10
-    call putu
-
-    ldi8 0x10 '\n'
-    call putc
-
-    jmp .loop
