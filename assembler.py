@@ -30,8 +30,9 @@ INST_FORMATS = {
     "CALL":     InstructionData(0x01, [IA_4B]),
     "RET":      InstructionData(0x02, []),
     "INT":      InstructionData(0x03, [IA_1B]),
+    "IRET":     InstructionData(0x04, []),
 
-    "MOV":      InstructionData(0x04, [IA_1B, IA_1B]),
+    "MOV":      InstructionData(0x05, [IA_1B, IA_1B]),
 
     "PUSH8":    InstructionData(0x08, [IA_1B]),
     "PUSH16":   InstructionData(0x09, [IA_1B]),
@@ -86,6 +87,7 @@ INST_FORMATS = {
     "JMP":      InstructionData(0x48, [IA_4B]),
     "JZ":       InstructionData(0x49, [IA_4B, IA_1B]),
     "JNZ":      InstructionData(0x4a, [IA_4B, IA_1B]),
+    "LJMP":     InstructionData(0x4b, [IA_4B, IA_4B]),
 
     "SND":      InstructionData(0x50, [IA_1B, IA_1B]),
     "RCV":      InstructionData(0x51, [IA_1B, IA_1B]),

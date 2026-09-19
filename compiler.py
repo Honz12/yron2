@@ -886,19 +886,6 @@ putc:
 
 ; ----------------------------
 ; FUNCTION
-; putc
-;
-putc:
-    push32 0x11
-
-    ldi8 0x11 1
-    snd 0x11 0x10
-
-    pop32 0x11
-    ret
-
-; ----------------------------
-; FUNCTION
 ; res8
 ;
 res8:

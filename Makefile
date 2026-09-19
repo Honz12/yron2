@@ -9,8 +9,14 @@ build/exe: build/ src/main.c
 build/:
 	mkdir build
 
-cbuild/main.bin: os/kernel.yr2 cbuild/main.yr2 cbuild/
-	$(PYTHON) assembler.py os/kernel.yr2 cbuild/main.yr2 -o cbuild/main.bin
+cbuild/kernel.bin: os/kernel.yr2 cbuild/
+	$(PYTHON) assembler.py os/kernel.yr2 -o cbuild/kernel.bin
+
+cbuild/main.bin: cbuild/main.yr2 os/main_helpers.yr2 cbuild/
+	$(PYTHON) assembler.py cbuild/main.yr2 os/main_helpers.yr2 -o cbuild/main.bin
+
+cbuild/rom.bin: cbuild/kernel.bin cbuild/main.bin cbuild/
+	cat cbuild/kernel.bin cbuild/main.bin > cbuild/rom.bin
 
 cbuild/main.yr2: os/main.yc cbuild/
 	$(PYTHON) compiler.py os/main.yc -o cbuild/main.yr2 --include-std-code false
@@ -18,8 +24,8 @@ cbuild/main.yr2: os/main.yc cbuild/
 cbuild/:
 	mkdir cbuild
 
-run: build/exe cbuild/main.bin
-	./build/exe cbuild/main.bin
+run: build/exe cbuild/rom.bin
+	./build/exe cbuild/rom.bin
 
 clean:
 	rm build/ -fr

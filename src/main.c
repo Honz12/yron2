@@ -9,7 +9,7 @@
 #define NUM_REGS 32
 #define REG_PC 0
 #define REG_SP 1
-#define REG_BR 2
+#define REG_MS 2
 #define INT_TABLE_START (uint32_t)1024
 #define INT_TABLE_SIZE (uint32_t)256 // 256 * 4 = 1024
 #define SUB_INSTRUCTION_COUNT (1024 * 1024 * 4) // RECOMENDED TO ADJUST FOR BETTER/WORSE COMPUTERS!
@@ -44,7 +44,8 @@ int init_devices_data(DevicesData *devices_data) {
 
 int cpu_make_interrupt(CpuData *cpu_data, uint8_t value);
 
-uint8_t cpu_get_ram(CpuData *data, uint32_t addr) {
+uint8_t cpu_get_ram_raw(CpuData *data, uint32_t addr, bool ignore_ms) {
+    if (!ignore_ms) addr += data->regs[REG_MS];
     if (addr >= data->ram_size) {
         cpu_make_interrupt(data, INT_INV_RAM_ADDR_ERR);
         return 0;
@@ -52,70 +53,25 @@ uint8_t cpu_get_ram(CpuData *data, uint32_t addr) {
     return data->ram[addr];
 }
 
-void cpu_set_ram(CpuData *data, uint32_t addr, uint8_t value) {
+void cpu_set_ram_raw(CpuData *data, uint32_t addr, uint8_t value, bool ignore_ms) {
+    if (!ignore_ms) addr += data->regs[REG_MS];
     if (addr >= data->ram_size) {
         cpu_make_interrupt(data, INT_INV_RAM_ADDR_ERR);
     }
     data->ram[addr] = value;
 }
 
+uint8_t cpu_get_ram(CpuData *data, uint32_t addr) {
+    return cpu_get_ram_raw(data, addr, false);
+}
+
+void cpu_set_ram(CpuData *data, uint32_t addr, uint8_t value) {
+    return cpu_set_ram_raw(data, addr, value, false);
+}
+
 bool g_debug_mode;
 bool g_clean_mode;
 bool g_verbose_mode;
-
-uint8_t g_instruction_argument_lengts[256] = {
-    [0x0] = 0,      // NOP
-    [0x1] = 4,      // CALL
-    [0x2] = 0,      // RET
-    [0x3] = 1,      // INT
-    [0x4] = 2,      // MOV
-    [0x8] = 1,      // PUSH8
-    [0x9] = 1,      // PUSH16
-    [0xa] = 1,      // PUSH32
-    [0xb] = 1,      // POP8
-    [0xc] = 1,      // POP16
-    [0xd] = 1,      // POP32
-    [0x10] = 2,     // LDI8
-    [0x11] = 3,     // LDI16
-    [0x12] = 5,     // LDI32
-    [0x14] = 5,     // LD8
-    [0x15] = 5,     // LD16
-    [0x16] = 5,     // LD32
-    [0x18] = 2,     // LDP8
-    [0x19] = 2,     // LDP16
-    [0x1a] = 2,     // LDP32
-    [0x1c] = 5,     // ST8
-    [0x1d] = 5,     // ST16
-    [0x1e] = 5,     // ST32
-    [0x20] = 2,     // STP8
-    [0x21] = 2,     // STP16
-    [0x22] = 2,     // STP32
-    [0x24] = 3,     // ADD
-    [0x25] = 3,     // SUB
-    [0x26] = 3,     // MUL
-    [0x27] = 3,     // MULS
-    [0x28] = 3,     // DIV
-    [0x29] = 3,     // DIVS
-    [0x2a] = 3,     // MOD
-    [0x2b] = 3,     // MODS
-    [0x2c] = 1,     // INC
-    [0x2d] = 1,     // DEC
-    [0x30] = 3,     // AND
-    [0x31] = 3,     // NAND
-    [0x32] = 3,     // OR
-    [0x33] = 3,     // NOR
-    [0x34] = 3,     // XOR
-    [0x40] = 3,     // EQ
-    [0x41] = 3,     // GT
-    [0x42] = 3,     // GTE
-    [0x43] = 3,     // LT
-    [0x44] = 3,     // LTE
-    [0x48] = 4,     // JMP
-    [0x49] = 5,     // JZ
-    [0x4a] = 5,     // JNZ
-    [0x50] = 2,     // SND
-    [0x51] = 2,     // RCV
-};
 
 void snd_to_device(DevicesData *devices_data, uint32_t port, uint32_t msg) {
     if (g_debug_mode) printf("SENT 0x%08x to 0x%02x\n", msg, port);
@@ -185,7 +141,7 @@ int cpu_push_stack_uint8(CpuData *cpu_data, uint8_t value) {
     }
 
     sp--;
-    cpu_set_ram(cpu_data, sp, value);
+    cpu_set_ram_raw(cpu_data, sp, value, true);
     cpu_data->regs[REG_SP] = sp; // Update SP register
 
     return 0;
@@ -218,7 +174,7 @@ int cpu_pop_stack_uint8(CpuData *cpu_data, uint8_t *value) {
         return 1;
     }
 
-    *value = cpu_get_ram(cpu_data, sp);
+    *value = cpu_get_ram_raw(cpu_data, sp, true);
     sp++;
     cpu_data->regs[REG_SP] = sp;
 
@@ -271,7 +227,11 @@ void cpu_set_reg(CpuData *cpu_data, uint8_t reg, uint32_t value) {
 
 int cpu_make_interrupt(CpuData *cpu_data, uint8_t value) {
     uint32_t return_pc = cpu_data->regs[REG_PC];
+    uint32_t return_ms = cpu_data->regs[REG_MS];
     cpu_push_stack_uint32(cpu_data, return_pc);
+    cpu_push_stack_uint32(cpu_data, return_ms);
+
+    cpu_data->regs[REG_MS] = 0;
 
     if (value < INT_TABLE_SIZE) {
         uint32_t int_field_start = INT_TABLE_START + value * 4;
@@ -281,7 +241,7 @@ int cpu_make_interrupt(CpuData *cpu_data, uint8_t value) {
 
         cpu_data->regs[REG_PC] = int_address;
         if (g_verbose_mode) {
-            printf("INT 0x%02x called, IFS: 0x%08x, return pc: 0x%08x, jumping to 0x%08x\nConfirm continuation by pressing any key ...", value, int_field_start, return_pc, int_address);
+            printf("\nINT 0x%02x called, IFS: 0x%08x, return pc: 0x%08x, jumping to 0x%08x\nConfirm continuation by pressing any key ...", value, int_field_start, return_pc, int_address);
             getchar();
         }
     }
@@ -300,6 +260,9 @@ void cpu_dump_registers(CpuData *cpu_data) {
         }
         else if (i == REG_SP) {
             printf("SP   : 0x%08x | %12d\n", cpu_data->regs[i], cpu_data->regs[i]);
+        }
+        else if (i == REG_MS) {
+            printf("MS   : 0x%08x | %12d\n", cpu_data->regs[i], cpu_data->regs[i]);
         }
         else {
             printf("0x%02x : 0x%08x | %12d\n", i, cpu_data->regs[i], cpu_data->regs[i]);
@@ -356,7 +319,20 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data) {
             }
             break;
         
-        case 0x04: // MOV
+        case 0x04: // RET
+            {
+                uint32_t dest_pc;
+                uint32_t dest_ms;
+
+                cpu_pop_stack_uint32(cpu_data, &dest_ms);
+                cpu_pop_stack_uint32(cpu_data, &dest_pc);
+
+                cpu_data->regs[REG_PC] = dest_pc;
+                cpu_data->regs[REG_MS] = dest_ms;
+            }
+            break;
+        
+        case 0x05: // MOV
             {
                 cpu_data->regs[REG_PC] += 3;
 
@@ -990,6 +966,23 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data) {
             }
             break;
         
+        case 0x4b: // LJMP
+            {
+                uint32_t memory_segment = cpu_get_ram(cpu_data, pc + 1);
+                memory_segment |= cpu_get_ram(cpu_data, pc + 2) << 8;
+                memory_segment |= cpu_get_ram(cpu_data, pc + 3) << 16;
+                memory_segment |= cpu_get_ram(cpu_data, pc + 4) << 24;
+
+                uint32_t program_counter = cpu_get_ram(cpu_data, pc + 5);
+                program_counter |= cpu_get_ram(cpu_data, pc + 6) << 8;
+                program_counter |= cpu_get_ram(cpu_data, pc + 7) << 16;
+                program_counter |= cpu_get_ram(cpu_data, pc + 8) << 24;
+
+                cpu_data->regs[REG_MS] = memory_segment;
+                cpu_data->regs[REG_PC] = program_counter;
+            }
+            break;
+        
         case 0x50: // SND
             {
                 cpu_data->regs[REG_PC] += 3;
@@ -1013,7 +1006,7 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data) {
             break;
 
         default:
-            printf("\nInstruction 0x%02x at 0x%08x is not supported\n", opcode, cpu_data->regs[REG_PC]);
+            printf("\nInstruction 0x%02x at 0x%08x (PC:0x%08x MS:0x%08x) is not supported\n", opcode, cpu_data->regs[REG_PC] + cpu_data->regs[REG_MS], cpu_data->regs[REG_PC], cpu_data->regs[REG_MS]);
             cpu_data->regs[REG_PC]++;
             return 1;
     }
@@ -1081,6 +1074,7 @@ int main(int argc, char *argv[]) {
         [0x48] = "JMP",
         [0x49] = "JZ",
         [0x4A] = "JNZ",
+        [0x4B] = "LJMP",
 
         [0x50] = "SND",
         [0x51] = "RCV"

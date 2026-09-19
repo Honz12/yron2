@@ -1,0 +1,67 @@
+; ========= KERNEL FUNCTIONS =========
+
+halt:
+    int 0x10
+    ret
+
+putc:
+    int 0x11
+    ret
+
+puts:
+    int 0x12
+    ret
+
+putu:
+    int 0x13
+    ret
+
+; ======= OTHER =======
+
+get_ms:
+    mov 0x02 0x1f
+
+; ----------------------------
+; FUNCTION
+; res8
+;
+res8:
+    ldp8 0x1f 0x10
+    ret
+
+; ----------------------------
+; FUNCTION
+; res16
+;
+res16:
+    ldp16 0x1f 0x10
+    ret
+
+; ----------------------------
+; FUNCTION
+; res32
+;
+res32:
+    ldp32 0x1f 0x10
+    ret
+
+; ----------------------------
+; FUNCTION
+; wrt8
+;
+wrt8:
+    stp8 0x10 0x11
+
+; ----------------------------
+; FUNCTION
+; wrt16
+;
+wrt16:
+    stp16 0x10 0x11
+
+; ----------------------------
+; FUNCTION
+; wrt32
+;
+wrt32:
+    stp32 0x10 0x11
