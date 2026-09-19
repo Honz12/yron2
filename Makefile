@@ -1,7 +1,7 @@
 CC=gcc
 PYTHON=python
 
-.PHONY: run clean setup-asm test-code
+.PHONY: run clean rm_db
 
 build/exe: build/ src/main.c
 	$(CC) src/main.c -o build/exe
