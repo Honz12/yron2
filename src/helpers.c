@@ -122,3 +122,33 @@ void process_sleep(unsigned int micro_seconds) {
     usleep(micro_seconds);
 #endif
 }
+
+int write_byte(FILE *disk, uint32_t offset, uint8_t data) {
+    // Move file pointer to the target offset relative to start (SEEK_SET)
+    if (fseek(disk, offset, SEEK_SET) != 0) {
+        return -1; // Seek error
+    }
+    
+    // Write 1 byte from the address of 'data'
+    if (fwrite(&data, sizeof(uint8_t), 1, disk) != 1) {
+        return -1; // Write error
+    }
+    
+    // Flush to ensure data is written out of the stream buffer
+    fflush(disk);
+    return 0; // Success
+}
+
+int read_byte(FILE *disk, uint32_t offset, uint8_t *out_data) {
+    // Move file pointer to the target offset
+    if (fseek(disk, offset, SEEK_SET) != 0) {
+        return -1; // Seek error
+    }
+    
+    // Read 1 byte into out_data
+    if (fread(out_data, sizeof(uint8_t), 1, disk) != 1) {
+        return -1; // Read error (e.g., attempt to read past End-Of-File)
+    }
+    
+    return 0; // Success
+}

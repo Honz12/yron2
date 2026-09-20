@@ -54,10 +54,16 @@ puts_int:
 putu_int:
     call putu
     iret
-; -----------------------
+
+; ----------------------------------------------------------------------------------------
 getc_int:
 	call getc
 	iret
+
+; ----------------------------------------------------------------------------------------
+disk_read_int:
+    call disk_read
+    iret
 
 ; KERNEL FUNCTIONS
 
@@ -293,6 +299,17 @@ putu:
 
     ret
 
+; ----------------------------------------------------------------------------------------
+; SUBR: disk_read
+;   Reads a byte from the DISKIO device
+; RETURNS:
+;   0x10 - byte
+;
+disk_read:
+    ldi8 0x10 0x03 ; "DISKIO - Write / Read" port
+    rcv 0x10 0x03
+    ret
+
 ; IVT
 
 ; ----------------------------------------------------------------------------------------
@@ -303,10 +320,11 @@ d32 ram_inv_addr_error_handler                  ; 0x01 - RAM Invalid Address Err
 
 org 0x0440                                      ; Non error interrupts
 
-d32 halt        ; 0x10
-d32 putc_int    ; 0x11
-d32 puts_int    ; 0x12
-d32 putu_int    ; 0x13
-d32 getc_int    ; 0x14
+d32 halt                ; 0x10
+d32 putc_int            ; 0x11
+d32 puts_int            ; 0x12
+d32 putu_int            ; 0x13
+d32 getc_int            ; 0x14
+d32 disk_read_int       ; 0x15
 
 org 0x0800

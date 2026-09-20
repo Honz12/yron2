@@ -27,34 +27,34 @@ typedef struct {
 } TerminalIoDeviceData;
 
 typedef struct {
-    uint32_t reading_address;
+    uint32_t address;
     FILE* disk_file;
 } DiskIoDevice;
 
 typedef struct {
     TerminalIoDeviceData *terminal_io_device_data;
-    DiskIoDevice* disk_id_device_data;
+    DiskIoDevice* disk_io_device_data;
 } DevicesData;
 
 
 int init_devices_data(DevicesData *devices_data) {
     devices_data->terminal_io_device_data = malloc(sizeof(TerminalIoDeviceData));
-    devices_data->disk_id_device_data = malloc(sizeof(DiskIoDevice));
+    devices_data->disk_io_device_data = malloc(sizeof(DiskIoDevice));
 
     if (devices_data->terminal_io_device_data == 0) {
         printf("FAILED TO ALLOCATE TerminalIoDeviceData STRUCT\n");
         return 1;
     }
 
-    if (devices_data->disk_id_device_data == 0) {
+    if (devices_data->disk_io_device_data == 0) {
         printf("FAILED TO ALLOCATE DiskIoDevice STRUCT\n");
         return 1;
     }
 
     devices_data->terminal_io_device_data->buffered_input = 0;
-    devices_data->disk_id_device_data->reading_address = 0;
+    devices_data->disk_io_device_data->address = 0;
     printf("LOADING DISK\n");
-    devices_data->disk_id_device_data->disk_file = fopen("disk.bin", "r+b");
+    devices_data->disk_io_device_data->disk_file = fopen("disk.bin", "r+b");
     printf("DISK LOADED\n");
 
     return 0;
@@ -99,14 +99,25 @@ void snd_to_device(DevicesData *devices_data, uint32_t port, uint32_t msg) {
             break;
     
         case 1: // Terminal IO device
-            char c = msg;
-            if (g_verbose_mode) {
-                printf("TERMIO OUT: '%c' (0x%02x)\n", c, c);
+            {
+                char c = msg;
+                if (g_verbose_mode) {
+                    printf("TERMIO OUT: '%c' (0x%02x)\n", c, c);
+                }
+                else {
+                    putc(c, stdout);
+                    fflush(stdout);
+                }
             }
-            else {
-                putc(c, stdout);
-                fflush(stdout);
-            }
+            break;
+        
+        case 2: // Disk IO - Seek
+            devices_data->disk_io_device_data->address = msg;
+            break;
+        
+        case 3: // Disk IO - Write / Read
+            write_byte(devices_data->disk_io_device_data->disk_file, devices_data->disk_io_device_data->address, msg);
+            devices_data->disk_io_device_data->address++;
             break;
         
         default:
@@ -126,6 +137,15 @@ uint32_t rcv_from_device(DevicesData *devices_data, uint32_t port) {
                 uint32_t input = devices_data->terminal_io_device_data->buffered_input;
                 devices_data->terminal_io_device_data->buffered_input = 0;
                 return input;
+            }
+            break;
+        
+        case 3: // Disk IO - Write / Read
+            {
+                uint8_t ret = 0x00;
+                read_byte(devices_data->disk_io_device_data->disk_file, devices_data->disk_io_device_data->address, &ret);
+                devices_data->disk_io_device_data->address++;
+                return ret;
             }
             break;
         
@@ -288,20 +308,19 @@ void cpu_dump_registers(CpuData *cpu_data) {
     }
 }
 
-void cpu_dump_ram(CpuData* cpu_data, bool start_from_ms, uint8_t bytes_per_line, uint8_t lines) {
+void cpu_dump_ram(CpuData* cpu_data, uint8_t bytes_per_line, uint8_t lines) {
     uint32_t bytes_to_display = lines * bytes_per_line;
     uint32_t raw_pc = cpu_data->regs[REG_PC] + cpu_data->regs[REG_MS];
 
     for (uint32_t i = 0; i < bytes_to_display; i += bytes_per_line)
     {
-        printf("0x%08x: ", i + cpu_data->regs[REG_MS]);
+        uint32_t line_origin = (raw_pc / bytes_per_line - 2) * bytes_per_line + i;
+
+        printf("0x%08x: ", line_origin);
 
         for (uint8_t o = 0; o < bytes_per_line; o++)
         {
-            uint32_t byte_addr = i + o;
-            if (start_from_ms) {
-                byte_addr += cpu_data->regs[REG_MS];
-            }
+            uint32_t byte_addr = line_origin + o;
             uint8_t byte = 0x00;
 
             if (byte_addr < cpu_data->ram_size) {
@@ -1233,7 +1252,7 @@ int main(int argc, char *argv[]) {
     while (true) {
         if (g_debug_mode) {
             cpu_dump_registers(cpu_data);
-            cpu_dump_ram(cpu_data, true, 64, 16);
+            cpu_dump_ram(cpu_data, 32, 16);
             if (cpu_data->regs[REG_PC] < cpu_data->ram_size) {
                 uint8_t opcode = cpu_get_ram(cpu_data, cpu_data->regs[REG_PC]);
                 char* alias = instruction_names[opcode];

@@ -24,6 +24,13 @@ getc:
 	pop32 0x10
 	ret
 
+disk_read:
+    push32 0x10
+    int 0x15
+    mov 0x10 0x1f
+    pop32 0x10
+    ret
+
 ; ======= OTHER =======
 
 __get_MS:
