@@ -738,14 +738,15 @@ class Parser:
 
             return ReturnStatementNode(base_token.start, end, expr)
 
-        elif (base_token.t == TT_IDEN) and (self.tokens[self.i + 1].t == TT_ASSIGN) if self.i + 1 < len(self.tokens):
+        elif (base_token.t == TT_IDEN) and (self.tokens[self.i + 1].t == TT_ASSIGN) if self.i + 1 < len(self.tokens) else False:
             self.advance()
             self.consume(TT_ASSIGN)
             expr = self.make_expr()
+            end = self.consume(TT_SEMI).end
 
             return AssignStatementNode(
                 base_token.start,
-                expr.end_pos,
+                end,
                 base_token.v,
                 expr
             )
@@ -1172,15 +1173,15 @@ class CodeGenerator:
                 if symbol.data.size == 1:
                     self.append("st8 ",
                         hex(0x0f), " ",
-                        hex(symbol.data.location))
+                        hex(symbol.location))
                 if symbol.data.size == 2:
                     self.append("st16 ",
                         hex(0x0f), " ",
-                        hex(symbol.data.location))
+                        hex(symbol.location))
                 if symbol.data.size == 4:
                     self.append("st32 ",
                         hex(0x0f), " ",
-                        hex(symbol.data.location))
+                        hex(symbol.location))
 
 if __name__ == "__main__":
     from sys import argv
