@@ -35,6 +35,10 @@ disk_write:
     int 0x16
     ret
 
+disk_seek:
+    int 0x17
+    ret
+
 ; ======= OTHER =======
 
 __get_MS:

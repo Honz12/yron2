@@ -1,12 +1,34 @@
 u32 free_space;
 
+func copy_disk(u32 start, u32 end, u32 destination_in_ram) {
+    start = start - __get_MS();
+    end = end - __get_MS();
+    if (
+        (start > end) | (end > 0xFFFF)
+    ) {
+        puts("INVALID READ\n");
+        return 1;
+    }
+
+    disk_seek(start);
+
+    while (start < end) {
+        wrt8(destination_in_ram, disk_read());
+
+        start = start + 1;
+        destination_in_ram = destination_in_ram + 1;
+    }
+
+    return 0;
+}
+
 func main() {
-	free_space = 0xFFFF;
+    free_space = 0xFFFF;
 
-	u32 welcome_message_pointer =
-		alc(5, 'A', 'H', 'O', 'J');
-	
-	puts(welcome_message_pointer);
-
-	puts(welcome_message_pointer);
+    u32 welcome_message_pointer =
+        alc(5, 'A', 'H', 'O', 'J');
+    
+    puts("STARTING READ FROM RAM ...");
+    copy_disk(0x0000, 0xFFFF, 0xFFFF);
+    puts("READ FROM RAM COMPLETED");
 }

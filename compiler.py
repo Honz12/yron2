@@ -1,5 +1,14 @@
 from dataclasses import dataclass
 from typing import Any
+import shutil
+
+ASCII_LINES = "||`-"
+UTF_LINES = "│├╰─"
+
+LINES_STRAIGHT = 0
+LINES_T = 1
+LINES_L = 2
+LINES_BRANCH = 3
 
 TT_INT = "int"
 TT_STRING = "string"
@@ -15,6 +24,12 @@ TT_MOD = "mod"
 TT_LESSER = "lesser"
 TT_GREATER = "greater"
 TT_EQUAL = "equal"
+
+TT_AND = "and"
+TT_NAND = "nand"
+TT_OR = "or"
+TT_NOR = "nor"
+TT_XOR = "and"
 
 TT_LPAREN = "lparen"
 TT_RPAREN = "rparen"
@@ -124,6 +139,10 @@ SYMBOL_MAP = {
     "}": TT_RBRACE,
     "[": TT_LBRACKET,
     "]": TT_RBRACKET,
+
+    "|": TT_OR,
+    "&": TT_AND,
+    "^": TT_XOR,
 }
 
 OPT_CAN_SIMPLIFY_EXPRESIONS = True
@@ -177,9 +196,18 @@ class Lexer:
                     tokens.append(Token(TT_EQUAL, None, start_pos, self.pos.copy()))
                 else:
                     tokens.append(Token(TT_ASSIGN, None, start_pos, self.pos.copy()))
+            elif self.c == "~":
+                start_pos = self.pos.copy()
+                self.advance()
+                if self.c == "&":
+                    self.advance()
+                    tokens.append(Token(TT_NAND, None, start_pos, self.pos.copy()))
+                elif self.c == "|":
+                    tokens.append(Token(TT_NOR, None, start_pos, self.pos.copy()))
+                else:
+                    CompilerError(f"LEXER - Got unepected character {repr(self.c)} after '~'.", self.pos).throw()
             else:
-                error = CompilerError(f"LEXER - Got unepected character {repr(self.c)}.", self.pos)
-                error.throw()
+                CompilerError(f"LEXER - Got unepected character {repr(self.c)}.", self.pos).throw()
 
         return tokens
 
@@ -321,6 +349,9 @@ class VariableData:
 
         return o
 
+OPT_USE_ASCII = False
+CSET = ASCII_LINES if OPT_USE_ASCII else UTF_LINES
+
 @dataclass
 class AstNode:
     start_pos: Position
@@ -332,17 +363,17 @@ class AstNode:
         if label:
             if last:
                 s = s.replace("\n", "\n        ")
-                return f"\n\x1b[90m ╰─ \x1b[0m{label}\n\x1b[90m     ╰─ \x1b[0m{s}"
+                return f"\n\x1b[90m {CSET[LINES_L]}{CSET[LINES_BRANCH]} \x1b[0m{label}\n\x1b[90m     {CSET[LINES_L]}{CSET[LINES_BRANCH]} \x1b[0m{s}"
             else:
-                s = s.replace("\n", "\n\x1b[90m │      \x1b[0m")
-                return f"\n\x1b[90m ├─ \x1b[0m{label}\n\x1b[90m │   ╰─ \x1b[0m{s}"
+                s = s.replace("\n", f"\n\x1b[90m {CSET[LINES_STRAIGHT]}      \x1b[0m")
+                return f"\n\x1b[90m {CSET[LINES_T]}{CSET[LINES_BRANCH]} \x1b[0m{label}\n\x1b[90m {CSET[LINES_STRAIGHT]}   {CSET[LINES_L]}{CSET[LINES_BRANCH]} \x1b[0m{s}"
         else:
             if last:
                 s = s.replace("\n", "\n    ")
-                return f"\n\x1b[90m ╰─ \x1b[0m{s}"
+                return f"\n\x1b[90m {CSET[LINES_L]}{CSET[LINES_BRANCH]} \x1b[0m{s}"
             else:
-                s = s.replace("\n", "\n\x1b[90m │  \x1b[0m")
-                return f"\n\x1b[90m ├─ \x1b[0m{s}"
+                s = s.replace("\n", f"\n\x1b[90m {CSET[LINES_STRAIGHT]}  \x1b[0m")
+                return f"\n\x1b[90m {CSET[LINES_T]}{CSET[LINES_BRANCH]} \x1b[0m{s}"
 
     def optimize(self):
         return self
@@ -422,6 +453,16 @@ class BinOpNone(AstNode):
                 return LiteralIntNode(self.start_pos, self.end_pos, 1 if self.left.number > self.right.number else 0)
             if self.optok.t == TT_GREATER:
                 return LiteralIntNode(self.start_pos, self.end_pos, 1 if self.left.number < self.right.number else 0)
+            if self.optok.t == TT_OR:
+                return LiteralIntNode(self.start_pos, self.end_pos, self.left.number | self.right.number)
+            if self.optok.t == TT_NOR:
+                return LiteralIntNode(self.start_pos, self.end_pos, ~(self.left.number | self.right.number))
+            if self.optok.t == TT_XOR:
+                return LiteralIntNode(self.start_pos, self.end_pos, self.left.number ^ self.right.number)
+            if self.optok.t == TT_AND:
+                return LiteralIntNode(self.start_pos, self.end_pos, self.left.number & self.right.number)
+            if self.optok.t == TT_NAND:
+                return LiteralIntNode(self.start_pos, self.end_pos, ~(self.left.number & self.right.number))
             
         if isinstance(self.left, LiteralIntNode) and isinstance(self.right, VariableReferenceNode):
             if self.optok.t == TT_MUL and self.left.number == 0:
@@ -575,19 +616,46 @@ class WhileStatementNode(AstNode):
     condition: AstNode
     block: ProgramNode
 
+    def __str__(self):
+        o = "WhileStatement"
+        o += self.format_as_child(self.condition, False, "CONDITION")
+        o += self.format_as_child(self.block, True, "BLOCK")
+        return o
+
 @dataclass
 class AllocateSpaceNode(AstNode):
     space: AstNode
     cells: list[AstNode]
 
+    def __str__(self):
+        o = "AllocateSpace"
+        o += self.format_as_child(self.space, False, "SPACE")
+        cells = "CELLS"
+        for i, cell in enumerate(self.cells):
+            cells += self.format_as_child(cell, i == len(self.cells) - 1)
+        o += self.format_as_child(cells, True)
+        return o
+
 @dataclass
 class ReturnStatementNode(AstNode):
     value: AstNode | None
+
+    def __str__(self):
+        o = "ReturnStatement"
+        if self.value is not None:
+            o += self.format_as_child(self.value, True, "VALUE")
+        return o
 
 @dataclass
 class AssignStatementNode(AstNode):
     name: str
     value: AstNode
+
+    def __str__(self):
+        o = "AssignStatement"
+        o += self.format_as_child(repr(self.name), False, "NAME")
+        o += self.format_as_child(self.value, True, "VALUE")
+        return o
 
 VARIBLE_TYPES = {
     TT_KW_U8: (1, False),
@@ -793,7 +861,10 @@ class Parser:
         return left
 
     def make_com_ops(self):
-        return self.make_bin_op(self.make_mul_div_mod, TT_EQUAL, TT_LESSER, TT_GREATER)
+        return self.make_bin_op(self.make_bit_op, TT_EQUAL, TT_LESSER, TT_GREATER)
+
+    def make_bit_op(self):
+        return self.make_bin_op(self.make_mul_div_mod, TT_OR, TT_NOR, TT_XOR, TT_AND, TT_NAND)
 
     def make_mul_div_mod(self):
         return self.make_bin_op(self.make_add_sub, TT_MUL, TT_DIV, TT_MOD)
@@ -866,6 +937,23 @@ class Parser:
             end = self.consume(TT_RPAREN).end
 
             return AllocateSpaceNode(t.start, end, expr, values)
+
+        if self.t.t == TT_STRING:
+            t = self.t
+            self.advance()
+
+            values = []
+
+            for c in t.v:
+                i = ord(c)
+                if i > 0xFF:
+                    continue
+
+                values.append(LiteralIntNode(t.start, t.end, i))
+
+            values.append(LiteralIntNode(t.start, t.end, 0x00))
+
+            return AllocateSpaceNode(t.start, t.end, LiteralIntNode(t.start, t.end, len(values)), values)
         
         CompilerError(f"PARSER - Unexpected token in factor {str(self.t)}.", self.t.start)
 
@@ -1000,6 +1088,7 @@ class CodeGenerator:
         self.generated = STD_CODE if OPT_INCLUDE_STD_CODE else NEEDED_CODE
         self.current_indent = 0
         self.verb_output = ""
+        self.label_counter = 0
 
     def get_compiled(self, node: AstNode):
         err = self.generate(node)
@@ -1022,7 +1111,7 @@ class CodeGenerator:
         return r
 
     def append(self, *values: str):
-        self.generated += (" " * self.current_indent * 4) + "".join(map(str, values)) + "\n"
+        self.generated += (" " * self.current_indent * 4) + "".join(map(str, values)).replace("\n", "\n" + (" " * self.current_indent * 4)) + "\n"
 
     def indent(self, i):
         self.current_indent += i
@@ -1110,7 +1199,25 @@ class CodeGenerator:
             if isinstance(node.right, BinOpNone):
                 self.append("pop32 0x0d")
 
-            self.append("add 0x0d 0x0e ", hex(reg))
+            insts = {
+                TT_PLUS: "add",
+                TT_MINUS: "sub",
+                TT_MUL: "mul",
+                TT_DIV: "div",
+                TT_MOD: "mod",
+
+                TT_AND: "and",
+                TT_NAND: "nand",
+                TT_OR: "or",
+                TT_NOR: "nor",
+                TT_XOR: "xor",
+
+                TT_EQUAL: "eq",
+                TT_GREATER: "gt",
+                TT_LESSER: "lt",
+            }
+
+            self.append(insts[node.optok.t], " 0x0d 0x0e ", hex(reg))
         elif isinstance(node, FunctionCallNode):
             gerr = self.generate(node)
             if gerr: return gerr
@@ -1140,9 +1247,10 @@ class CodeGenerator:
             if gerr:
                 return gerr
         self.append("call ", node.name)
+        pop_statements = ""
         for i in range(len(node.args)):
-            self.append("pop32 ", hex(i + 0x10))
-        self.append()
+            pop_statements = "pop32 " + hex(i + 0x10) + "\n" + pop_statements
+        self.append(pop_statements)
     
     def gen_VariableDeclarationNode(self, node: VariableDeclarationNode):
         allocated = self.allocate_variable(node.data)
@@ -1186,6 +1294,50 @@ class CodeGenerator:
                     self.append("st32 ",
                         hex(0x0f), " ",
                         hex(symbol.location))
+    
+    def gen_IfStatementNode(self, node: IfStatementNode):
+        self.label_counter += 1
+        suffix = self.label_counter
+        else_label = f"__if_else_{suffix}"
+        end_label = f"__if_end_{suffix}"
+
+        error = self.resolve_expr_into_reg(node.condition, 0x0f)
+        if error:
+            return error
+
+        self.append("jz ", hex(0x0f), " ", else_label)
+        error = self.generate(node.if_branch)
+        if error:
+            return error
+
+        if node.else_branch is not None:
+            self.append("jmp ", end_label)
+            self.append(else_label, ":")
+            error = self.generate(node.else_branch)
+            if error:
+                return error
+            self.append(end_label, ":")
+        else:
+            self.append(else_label, ":")
+
+    def gen_WhileStatementNode(self, node: WhileStatementNode):
+        self.label_counter += 1
+        suffix = self.label_counter
+        start_label = f"__while_start_{suffix}"
+        end_label = f"__while_end_{suffix}"
+
+        self.append(start_label, ":")
+        error = self.resolve_expr_into_reg(node.condition, 0x0f)
+        if error:
+            return error
+
+        self.append("jz ", hex(0x0f), " ", end_label)
+        error = self.generate(node.block)
+        if error:
+            return error
+
+        self.append("jmp ", start_label)
+        self.append(end_label, ":")
 
 if __name__ == "__main__":
     from sys import argv
@@ -1264,7 +1416,7 @@ if __name__ == "__main__":
 
     ast = parser.get_ast()
 
-    TERMINAL_WIDTH = 60
+    terminal_width = shutil.get_terminal_size(fallback=(80, 24)).columns - 4
 
     if verbose:
         no_opt_ast = str(ast)
@@ -1275,19 +1427,21 @@ if __name__ == "__main__":
         PAGES = True
 
         if PAGES:
+            PAGED_TERM_WIDTH = terminal_width // 2
+
             no_opt_ast = no_opt_ast.split("\n")
             opt_ast = opt_ast.split("\n")
-            print(" Unoptimized ".center((TERMINAL_WIDTH - 4) // 2, "=") + " │ " + " Optimized ".center((TERMINAL_WIDTH - 4) // 2, "="))
+            print(" Unoptimized ".center(PAGED_TERM_WIDTH, "=") + f" {CSET[LINES_STRAIGHT]} " + " Optimized ".center(PAGED_TERM_WIDTH, "="))
 
             for i in range(max(len(no_opt_ast), len(opt_ast))):
-                if i < len(no_opt_ast): print(no_opt_ast[i] + " " * (TERMINAL_WIDTH - len(no_opt_ast[i].replace("\x1b[90m", "").replace("\x1b[0m", ""))), end=" │ ")
-                else: print(" " * TERMINAL_WIDTH, end=" │ ")
-                if i < len(opt_ast): print(no_opt_ast[i] + " " * (TERMINAL_WIDTH - len(opt_ast[i].replace("\x1b[90m", "").replace("\x1b[0m", ""))))
-                else: print(" " * TERMINAL_WIDTH)
+                if i < len(no_opt_ast): print(no_opt_ast[i] + " " * (PAGED_TERM_WIDTH - len(no_opt_ast[i].replace("\x1b[90m", "").replace("\x1b[0m", ""))), end=f" {CSET[LINES_STRAIGHT]} ")
+                else: print(" " * terminal_width, end=f" {CSET[LINES_STRAIGHT]} ")
+                if i < len(opt_ast): print(no_opt_ast[i] + " " * (PAGED_TERM_WIDTH - len(opt_ast[i].replace("\x1b[90m", "").replace("\x1b[0m", ""))))
+                else: print(" " * terminal_width)
         else:
-            print(" Unoptimized ".center(TERMINAL_WIDTH, "="))
+            print(" Unoptimized ".center(terminal_width, "="))
             print(no_opt_ast)
-            print("\n" + " Optimized ".center(TERMINAL_WIDTH, "="))
+            print("\n" + " Optimized ".center(terminal_width, "="))
             print(opt_ast)
     else:
         ast.optimize()
@@ -1306,7 +1460,7 @@ if __name__ == "__main__":
 
     if verbose:
         print("\n")
-        print(" CODE GENERATED ".center(TERMINAL_WIDTH, "="))
+        print(" CODE GENERATED ".center(terminal_width, "="))
 
     with open(output_file, "w") as f:
         f.write(generated)

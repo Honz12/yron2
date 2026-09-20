@@ -55,6 +55,13 @@ int init_devices_data(DevicesData *devices_data) {
     devices_data->disk_io_device_data->address = 0;
     printf("LOADING DISK\n");
     devices_data->disk_io_device_data->disk_file = fopen("disk.bin", "r+b");
+    if (!devices_data->disk_io_device_data->disk_file) {
+        devices_data->disk_io_device_data->disk_file = fopen("disk.bin", "w+b");
+        if (!devices_data->disk_io_device_data->disk_file) {
+            printf("FAILED TO OPEN OR CREATE DISK FILE\n");
+            return 1;
+        }
+    }
     printf("DISK LOADED\n");
 
     return 0;
@@ -75,6 +82,7 @@ void cpu_set_ram_raw(CpuData *data, uint32_t addr, uint8_t value, bool ignore_ms
     if (!ignore_ms) addr += data->regs[REG_MS];
     if (addr >= data->ram_size) {
         cpu_make_interrupt(data, INT_INV_RAM_ADDR_ERR);
+        return;
     }
     data->ram[addr] = value;
 }
@@ -281,7 +289,7 @@ int cpu_make_interrupt(CpuData *cpu_data, uint8_t value) {
         uint32_t int_field_start = INT_TABLE_START + value * 4;
         uint32_t int_address = cpu_get_ram(cpu_data, int_field_start) |
         (cpu_get_ram(cpu_data, int_field_start + 1) << 8) |
-        (cpu_get_ram(cpu_data, int_field_start + 2) << 16) | (cpu_get_ram(cpu_data, int_field_start + 3) << 24);
+        (cpu_get_ram(cpu_data, int_field_start + 2) << 16) | ((uint32_t)cpu_get_ram(cpu_data, int_field_start + 3) << 24);
 
         cpu_data->regs[REG_PC] = int_address;
         if (g_verbose_mode) {
@@ -363,7 +371,7 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data) {
                 uint32_t value = cpu_get_ram(cpu_data, pc + 1);
                 value |= cpu_get_ram(cpu_data, pc + 2) << 8;
                 value |= cpu_get_ram(cpu_data, pc + 3) << 16;
-                value |= cpu_get_ram(cpu_data, pc + 4) << 24;
+                value |= (uint32_t)cpu_get_ram(cpu_data, pc + 4) << 24;
 
                 cpu_push_stack_uint32(cpu_data, cpu_data->regs[REG_PC]);
 
@@ -511,7 +519,7 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data) {
                 uint32_t value = cpu_get_ram(cpu_data, pc + 2);
                 value |= cpu_get_ram(cpu_data, pc + 3) << 8;
                 value |= cpu_get_ram(cpu_data, pc + 4) << 16;
-                value |= cpu_get_ram(cpu_data, pc + 5) << 24;
+                value |= (uint32_t)cpu_get_ram(cpu_data, pc + 5) << 24;
 
                 cpu_set_reg(cpu_data, reg, value);
             }
@@ -525,7 +533,7 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data) {
                 uint32_t addr = cpu_get_ram(cpu_data, pc + 2);
                 addr |= cpu_get_ram(cpu_data, pc + 3) << 8;
                 addr |= cpu_get_ram(cpu_data, pc + 4) << 16;
-                addr |= cpu_get_ram(cpu_data, pc + 5) << 24;
+                addr |= (uint32_t)cpu_get_ram(cpu_data, pc + 5) << 24;
 
                 cpu_set_reg(cpu_data, reg, cpu_get_ram(cpu_data, addr));
             }
@@ -539,7 +547,7 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data) {
                 uint32_t addr = cpu_get_ram(cpu_data, pc + 2);
                 addr |= cpu_get_ram(cpu_data, pc + 3) << 8;
                 addr |= cpu_get_ram(cpu_data, pc + 4) << 16;
-                addr |= cpu_get_ram(cpu_data, pc + 5) << 24;
+                addr |= (uint32_t)cpu_get_ram(cpu_data, pc + 5) << 24;
 
                 cpu_set_reg(cpu_data, reg,
                     cpu_get_ram(cpu_data, addr) | (cpu_get_ram(cpu_data, addr + 1) << 8)
@@ -555,11 +563,11 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data) {
                 uint32_t addr = cpu_get_ram(cpu_data, pc + 2);
                 addr |= cpu_get_ram(cpu_data, pc + 3) << 8;
                 addr |= cpu_get_ram(cpu_data, pc + 4) << 16;
-                addr |= cpu_get_ram(cpu_data, pc + 5) << 24;
+                addr |= (uint32_t)cpu_get_ram(cpu_data, pc + 5) << 24;
 
                 cpu_set_reg(cpu_data, reg,
                     cpu_get_ram(cpu_data, addr) | (cpu_get_ram(cpu_data, addr + 1) << 8) |
-                    (cpu_get_ram(cpu_data, addr + 2) << 16) | (cpu_get_ram(cpu_data, addr + 3) << 24)
+                    (cpu_get_ram(cpu_data, addr + 2) << 16) | ((uint32_t)cpu_get_ram(cpu_data, addr + 3) << 24)
                 );
             }
             break;
@@ -603,7 +611,7 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data) {
 
                 cpu_set_reg(cpu_data, reg,
                     cpu_get_ram(cpu_data, addr) | (cpu_get_ram(cpu_data, addr + 1) << 8) |
-                    (cpu_get_ram(cpu_data, addr + 2) << 16) | (cpu_get_ram(cpu_data, addr + 3) << 24)
+                    (cpu_get_ram(cpu_data, addr + 2) << 16) | ((uint32_t)cpu_get_ram(cpu_data, addr + 3) << 24)
                 );
             }
             break;
@@ -616,7 +624,7 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data) {
                 uint32_t addr = cpu_get_ram(cpu_data, pc + 2);
                 addr |= cpu_get_ram(cpu_data, pc + 3) << 8;
                 addr |= cpu_get_ram(cpu_data, pc + 4) << 16;
-                addr |= cpu_get_ram(cpu_data, pc + 5) << 24;
+                addr |= (uint32_t)cpu_get_ram(cpu_data, pc + 5) << 24;
 
                 cpu_set_ram(cpu_data, addr, cpu_get_reg(cpu_data, reg));
             }
@@ -630,7 +638,7 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data) {
                 uint32_t addr = cpu_get_ram(cpu_data, pc + 2);
                 addr |= cpu_get_ram(cpu_data, pc + 3) << 8;
                 addr |= cpu_get_ram(cpu_data, pc + 4) << 16;
-                addr |= cpu_get_ram(cpu_data, pc + 5) << 24;
+                addr |= (uint32_t)cpu_get_ram(cpu_data, pc + 5) << 24;
 
                 uint32_t val = cpu_get_reg(cpu_data, reg);
                 cpu_set_ram(cpu_data, addr, val & 0xFF);
@@ -646,7 +654,7 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data) {
                 uint32_t addr = cpu_get_ram(cpu_data, pc + 2);
                 addr |= cpu_get_ram(cpu_data, pc + 3) << 8;
                 addr |= cpu_get_ram(cpu_data, pc + 4) << 16;
-                addr |= cpu_get_ram(cpu_data, pc + 5) << 24;
+                addr |= (uint32_t)cpu_get_ram(cpu_data, pc + 5) << 24;
 
                 uint32_t val = cpu_get_reg(cpu_data, reg);
                 cpu_set_ram(cpu_data, addr, val & 0xFF);
@@ -784,12 +792,13 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data) {
                 uint8_t reg_b = cpu_get_ram(cpu_data, pc + 2);
                 uint8_t reg_str = cpu_get_ram(cpu_data, pc + 3);
 
-                uint32_t val_b = cpu_get_reg(cpu_data, reg_b);
-                if (val_b == 0) {
+                int val_a = (int)cpu_get_reg(cpu_data, reg_a);
+                int val_b = (int)cpu_get_reg(cpu_data, reg_b);
+                if (val_b == 0 || (val_a == INT32_MIN && val_b == -1)) {
                     cpu_set_reg(cpu_data, reg_str, 0);
                     break;
                 }
-                cpu_set_reg(cpu_data, reg_str, (int)cpu_get_reg(cpu_data, reg_a) / (int)val_b);
+                cpu_set_reg(cpu_data, reg_str, val_a / val_b);
             }
             break;
         
@@ -816,12 +825,13 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data) {
                 uint8_t reg_b = cpu_get_ram(cpu_data, pc + 2);
                 uint8_t reg_str = cpu_get_ram(cpu_data, pc + 3);
 
-                uint32_t val_b = cpu_get_reg(cpu_data, reg_b);
-                if (val_b == 0) {
+                int val_a = (int)cpu_get_reg(cpu_data, reg_a);
+                int val_b = (int)cpu_get_reg(cpu_data, reg_b);
+                if (val_b == 0 || (val_a == INT32_MIN && val_b == -1)) {
                     cpu_set_reg(cpu_data, reg_str, 0);
                     break;
                 }
-                cpu_set_reg(cpu_data, reg_str, (int)cpu_get_reg(cpu_data, reg_a) % (int)val_b);
+                cpu_set_reg(cpu_data, reg_str, val_a % val_b);
             }
             break;
         
@@ -1000,7 +1010,7 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data) {
                 uint32_t value = cpu_get_ram(cpu_data, pc + 1);
                 value |= cpu_get_ram(cpu_data, pc + 2) << 8;
                 value |= cpu_get_ram(cpu_data, pc + 3) << 16;
-                value |= cpu_get_ram(cpu_data, pc + 4) << 24;
+                value |= (uint32_t)cpu_get_ram(cpu_data, pc + 4) << 24;
 
                 cpu_data->regs[REG_PC] = value;
             }
@@ -1013,7 +1023,7 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data) {
                 uint32_t value = cpu_get_ram(cpu_data, pc + 1);
                 value |= cpu_get_ram(cpu_data, pc + 2) << 8;
                 value |= cpu_get_ram(cpu_data, pc + 3) << 16;
-                value |= cpu_get_ram(cpu_data, pc + 4) << 24;
+                value |= (uint32_t)cpu_get_ram(cpu_data, pc + 4) << 24;
                 uint8_t condition_reg = cpu_get_ram(cpu_data, pc + 5);
 
                 if (cpu_get_reg(cpu_data, condition_reg) == 0) {
@@ -1029,7 +1039,7 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data) {
                 uint32_t value = cpu_get_ram(cpu_data, pc + 1);
                 value |= cpu_get_ram(cpu_data, pc + 2) << 8;
                 value |= cpu_get_ram(cpu_data, pc + 3) << 16;
-                value |= cpu_get_ram(cpu_data, pc + 4) << 24;
+                value |= (uint32_t)cpu_get_ram(cpu_data, pc + 4) << 24;
                 uint8_t condition_reg = cpu_get_ram(cpu_data, pc + 5);
 
                 if (cpu_get_reg(cpu_data, condition_reg)) {
@@ -1159,8 +1169,8 @@ int main(int argc, char *argv[]) {
     }
     printf("Allocated CpuData struct\n");
     
-    // 1 MiB of RAM, for now
-    cpu_data->ram_size = 1024 * 1024;
+    // 64 MiB of RAM, for now
+    cpu_data->ram_size = 1024 * 1024 * 64;
     
     cpu_data->ram = malloc(cpu_data->ram_size);
 
