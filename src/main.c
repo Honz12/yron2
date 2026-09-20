@@ -27,17 +27,35 @@ typedef struct {
 } TerminalIoDeviceData;
 
 typedef struct {
+    uint32_t reading_address;
+    FILE* disk_file;
+} DiskIoDevice;
+
+typedef struct {
     TerminalIoDeviceData *terminal_io_device_data;
+    DiskIoDevice* disk_id_device_data;
 } DevicesData;
 
 
 int init_devices_data(DevicesData *devices_data) {
     devices_data->terminal_io_device_data = malloc(sizeof(TerminalIoDeviceData));
+    devices_data->disk_id_device_data = malloc(sizeof(DiskIoDevice));
 
     if (devices_data->terminal_io_device_data == 0) {
         printf("FAILED TO ALLOCATE TerminalIoDeviceData STRUCT\n");
         return 1;
     }
+
+    if (devices_data->disk_id_device_data == 0) {
+        printf("FAILED TO ALLOCATE DiskIoDevice STRUCT\n");
+        return 1;
+    }
+
+    devices_data->terminal_io_device_data->buffered_input = 0;
+    devices_data->disk_id_device_data->reading_address = 0;
+    printf("LOADING DISK\n");
+    devices_data->disk_id_device_data->disk_file = fopen("disk.bin", "r+b");
+    printf("DISK LOADED\n");
 
     return 0;
 }
@@ -270,6 +288,35 @@ void cpu_dump_registers(CpuData *cpu_data) {
     }
 }
 
+void cpu_dump_ram(CpuData* cpu_data, bool start_from_ms, uint8_t bytes_per_line, uint8_t lines) {
+    uint32_t bytes_to_display = lines * bytes_per_line;
+    uint32_t raw_pc = cpu_data->regs[REG_PC] + cpu_data->regs[REG_MS];
+
+    for (uint32_t i = 0; i < bytes_to_display; i += bytes_per_line)
+    {
+        printf("0x%08x: ", i + cpu_data->regs[REG_MS]);
+
+        for (uint8_t o = 0; o < bytes_per_line; o++)
+        {
+            uint32_t byte_addr = i + o;
+            if (start_from_ms) {
+                byte_addr += cpu_data->regs[REG_MS];
+            }
+            uint8_t byte = 0x00;
+
+            if (byte_addr < cpu_data->ram_size) {
+                byte = cpu_data->ram[byte_addr];
+            }
+
+            if (byte_addr == raw_pc) printf("\x1b[33m%02x \x1b[0m", byte);
+            else if (byte == 0x00) printf("\x1b[90m%02x \x1b[0m", byte);
+            else printf("%02x ", byte);
+        }
+        putc('\n', stdout);
+    }
+    
+}
+
 int tick_cpu(CpuData *cpu_data, DevicesData *devices_data) {
     uint32_t pc = cpu_data->regs[REG_PC];
     
@@ -424,7 +471,7 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data) {
                 cpu_data->regs[REG_PC] += 4;
 
                 uint8_t reg = cpu_get_ram(cpu_data, pc + 1);
-                uint8_t value = cpu_get_ram(cpu_data, pc + 2);
+                uint16_t value = cpu_get_ram(cpu_data, pc + 2);
                 value |= cpu_get_ram(cpu_data, pc + 3) << 8;
 
                 cpu_set_reg(cpu_data, reg, value);
@@ -968,15 +1015,8 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data) {
         
         case 0x4b: // LJMP
             {
-                uint32_t memory_segment = cpu_get_ram(cpu_data, pc + 1);
-                memory_segment |= cpu_get_ram(cpu_data, pc + 2) << 8;
-                memory_segment |= cpu_get_ram(cpu_data, pc + 3) << 16;
-                memory_segment |= cpu_get_ram(cpu_data, pc + 4) << 24;
-
-                uint32_t program_counter = cpu_get_ram(cpu_data, pc + 5);
-                program_counter |= cpu_get_ram(cpu_data, pc + 6) << 8;
-                program_counter |= cpu_get_ram(cpu_data, pc + 7) << 16;
-                program_counter |= cpu_get_ram(cpu_data, pc + 8) << 24;
+                uint32_t memory_segment = cpu_get_reg(cpu_data, cpu_get_ram(cpu_data, pc + 1));
+                uint32_t program_counter = cpu_get_reg(cpu_data, cpu_get_ram(cpu_data, pc + 2));
 
                 cpu_data->regs[REG_MS] = memory_segment;
                 cpu_data->regs[REG_PC] = program_counter;
@@ -1114,10 +1154,12 @@ int main(int argc, char *argv[]) {
     }
 
     {
+        printf("INITIALIZING DEVICES\n");
         int init_devices_data_return = init_devices_data(devices_data);
         if (init_devices_data_return) {
             return init_devices_data_return;
         }
+        printf("DEVICES INITIALIZED\n");
     }
 
     for (int i = 0; i < NUM_REGS; i++)
@@ -1169,6 +1211,7 @@ int main(int argc, char *argv[]) {
         "To start in CLEAN MODE, press 'c'\n"
         "To start in VERBOSE MODE press 'v'"
     );
+    fflush(stdout);
 
     char mode_ran = getchar();
 
@@ -1190,6 +1233,7 @@ int main(int argc, char *argv[]) {
     while (true) {
         if (g_debug_mode) {
             cpu_dump_registers(cpu_data);
+            cpu_dump_ram(cpu_data, true, 64, 16);
             if (cpu_data->regs[REG_PC] < cpu_data->ram_size) {
                 uint8_t opcode = cpu_get_ram(cpu_data, cpu_data->regs[REG_PC]);
                 char* alias = instruction_names[opcode];

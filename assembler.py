@@ -87,7 +87,7 @@ INST_FORMATS = {
     "JMP":      InstructionData(0x48, [IA_4B]),
     "JZ":       InstructionData(0x49, [IA_4B, IA_1B]),
     "JNZ":      InstructionData(0x4a, [IA_4B, IA_1B]),
-    "LJMP":     InstructionData(0x4b, [IA_4B, IA_4B]),
+    "LJMP":     InstructionData(0x4b, [IA_1B, IA_1B]),
 
     "SND":      InstructionData(0x50, [IA_1B, IA_1B]),
     "RCV":      InstructionData(0x51, [IA_1B, IA_1B]),

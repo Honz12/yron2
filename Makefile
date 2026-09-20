@@ -21,10 +21,13 @@ cbuild/rom.bin: cbuild/kernel.bin cbuild/main.bin cbuild/
 cbuild/main.yr2: os/main.yc cbuild/
 	$(PYTHON) compiler.py os/main.yc -o cbuild/main.yr2 --include-std-code false
 
+disk.bin:
+	dd if=/dev/zero of=disk.bin bs=1 count=65536 # 64 KiB disk
+
 cbuild/:
 	mkdir cbuild
 
-run: rm_cb build/exe cbuild/rom.bin
+run: rm_cb build/exe cbuild/rom.bin disk.bin
 	./build/exe cbuild/rom.bin
 
 clean:

@@ -388,9 +388,9 @@ class BinOpNone(AstNode):
             if self.optok.t == TT_EQUAL:
                 return LiteralIntNode(self.start_pos, self.end_pos, 1 if self.left.number == self.right.number else 0)
             if self.optok.t == TT_LESSER:
-                return LiteralIntNode(self.start_pos, self.end_pos, 1 if self.left.number > self.right.number else 0)
-            if self.optok.t == TT_GREATER:
                 return LiteralIntNode(self.start_pos, self.end_pos, 1 if self.left.number < self.right.number else 0)
+            if self.optok.t == TT_GREATER:
+                return LiteralIntNode(self.start_pos, self.end_pos, 1 if self.left.number > self.right.number else 0)
             
         if isinstance(self.left, LiteralIntNode) and isinstance(self.right, VariableReferenceNode) and OPT_CAN_SIMPLIFY_EXPRESIONS:
             if self.optok.t == TT_MUL and self.left.number == 0:
@@ -1135,17 +1135,21 @@ class CodeGenerator:
 
     def gen_FunctionCallNode(self, node: FunctionCallNode):
         for i, a in enumerate(node.args):
+            self.append("push32 ", hex(i + 0x10))
             gerr = self.resolve_expr_into_reg(a, i + 0x10)
             if gerr:
                 return gerr
         self.append("call ", node.name)
+        for i in range(len(node.args)):
+            self.append("pop32 ", hex(i + 0x10))
+        self.append()
     
     def gen_VariableDeclarationNode(self, node: VariableDeclarationNode):
         allocated = self.allocate_variable(node.data)
         self.append()
         self.append("; Variable ", repr(node.data.name), " declaration, allocated to ", hex(allocated.location))
+        self.scope.symbols.append(allocated)
         if node.value is not None:
-            self.scope.symbols.append(allocated)
             gerr = self.resolve_expr_into_reg(node.value, 0x0f)
             if gerr: return gerr
             if allocated.data.size == 1:

@@ -1,9 +1,9 @@
 ldi32 0x01 0xFFFF               ; initialize stack pointer
 
-;ldi32 0x10 CLEAR_SCREEN_ANSI
-;call puts                      ; clear the screen
+ldi16 0x10 0x800
+ldi8 0x11 0x0
 
-ljmp 0x800 0
+ljmp 0x10 0x11
 
 ; DATA
 
@@ -12,7 +12,6 @@ ljmp 0x800 0
     RESET_ANSI: str "\e[0m\0"
     BOLD_ANSI: str "\e[1m\0"
     RESET_BOLD_ANSI: str "\e[22m\0"
-    CLEAR_SCREEN_ANSI: str "\e[2J\e[H\0"
 
 ; KERNEL MESSAGES
     KERNEL_PANIC_TEXT: str "\nKernel Panic\n\0"

@@ -26,9 +26,12 @@ getc:
 
 ; ======= OTHER =======
 
-get_MS:
+__get_MS:
     mov 0x02 0x1f
     ret
+
+__ljump:
+    ljmp 0x10 0x11
 
 ; ----------------------------
 ; FUNCTION
