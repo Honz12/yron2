@@ -140,6 +140,12 @@ uint32_t rcv_from_device(DevicesData *devices_data, uint32_t port) {
             }
             break;
         
+        case 2: // Disk IO - Seek
+            {
+                return devices_data->disk_io_device_data->address;
+            }
+            break;
+        
         case 3: // Disk IO - Write / Read
             {
                 uint8_t ret = 0x00;

@@ -31,6 +31,10 @@ disk_read:
     pop32 0x10
     ret
 
+disk_write:
+    int 0x16
+    ret
+
 ; ======= OTHER =======
 
 __get_MS:

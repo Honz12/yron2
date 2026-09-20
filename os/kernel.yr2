@@ -65,6 +65,16 @@ disk_read_int:
     call disk_read
     iret
 
+; ----------------------------------------------------------------------------------------
+disk_write_int:
+    call disk_write
+    iret
+
+; ----------------------------------------------------------------------------------------
+disk_seek_in:
+    call disk_seek
+    iret
+
 ; KERNEL FUNCTIONS
 
 ; ----------------------------------------------------------------------------------------
@@ -307,7 +317,33 @@ putu:
 ;
 disk_read:
     ldi8 0x10 0x03 ; "DISKIO - Write / Read" port
-    rcv 0x10 0x03
+    rcv 0x10 0x10
+    ret
+
+; ----------------------------------------------------------------------------------------
+; SUBR: disk_write
+;   Reads a byte from the DISKIO device
+; RETURNS:
+;   0x10 - byte
+;
+disk_write:
+    push32 0x11
+    ldi8 0x11 0x03 ; "DISKIO - Write / Read" port
+    snd 0x11 0x10
+    pop32 0x11
+    ret
+
+; ----------------------------------------------------------------------------------------
+; SUBR: disk_seek
+;   Reads a byte from the DISKIO device
+; RETURNS:
+;   0x10 - byte
+;
+disk_seek:
+    push32 0x11
+    ldi8 0x11 0x03 ; "DISKIO - Seek" port
+    snd 0x11 0x10
+    pop32 0x11
     ret
 
 ; IVT
@@ -326,5 +362,7 @@ d32 puts_int            ; 0x12
 d32 putu_int            ; 0x13
 d32 getc_int            ; 0x14
 d32 disk_read_int       ; 0x15
+d32 disk_write_int      ; 0x16
+d32 disk_seek_int       ; 0x17
 
 org 0x0800
