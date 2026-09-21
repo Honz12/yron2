@@ -20,7 +20,11 @@ func main() {
     
     puts("STARTING READ FROM DISK ...");
 
+    breakpoint;
+
     copy_disk(0, disk_size, free_space_start);
+    
+   	breakpoint;
 
     puts("READ FROM DISK COMPLETED");
 }
