@@ -1320,7 +1320,7 @@ class CodeGenerator:
         if error:
             return error
 
-        self.append("jz ", hex(0x0f), " ", else_label)
+        self.append("jz ", else_label, " 0x0f")
         error = self.generate(node.if_branch)
         if error:
             return error
@@ -1346,7 +1346,7 @@ class CodeGenerator:
         if error:
             return error
 
-        self.append("jz ", hex(0x0f), " ", end_label)
+        self.append("jz ", end_label, " 0x0f")
         error = self.generate(node.block)
         if error:
             return error

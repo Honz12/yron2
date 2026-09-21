@@ -98,6 +98,7 @@ void cpu_set_ram(CpuData *data, uint32_t addr, uint8_t value) {
 
 bool g_debug_mode;
 bool g_clean_mode;
+bool g_clean_mode_enable_breakpoints;
 bool g_verbose_mode;
 
 void snd_to_device(DevicesData *devices_data, uint32_t port, uint32_t msg) {
@@ -321,8 +322,8 @@ void cpu_dump_registers(CpuData *cpu_data) {
 }
 
 void cpu_dump_ram(CpuData* cpu_data) {
-    const uint8_t lines = 24;
-    const uint8_t bytes_per_line = 16;
+    const uint8_t lines = 8;
+    const uint8_t bytes_per_line = 64;
 
     uint32_t bytes_to_display = lines * bytes_per_line;
     uint32_t raw_pc = cpu_data->regs[REG_PC] + cpu_data->regs[REG_MS];
@@ -1263,6 +1264,7 @@ int main(int argc, char *argv[]) {
         "\nPress ENTER to start simulation\n"
         "To start in DEBUG MODE, press 'd'\n"
         "To start in CLEAN MODE, press 'c'\n"
+        "To start in CLEAN MODE WITH BREAKPOINTS, press 'C'\n"
         "To start in VERBOSE MODE press 'v'"
     );
     fflush(stdout);
@@ -1270,7 +1272,8 @@ int main(int argc, char *argv[]) {
     char mode_ran = getchar();
 
     g_debug_mode = mode_ran == 'd';
-    g_clean_mode = mode_ran == 'c' || mode_ran == 'v';
+    g_clean_mode = mode_ran == 'c' || mode_ran == 'v' || mode_ran == 'C';
+    g_clean_mode_enable_breakpoints = mode_ran == 'C';
     g_verbose_mode = mode_ran == 'v';
 
     printf("\n------------------ STARTING SIMULATION ------------------\n");
@@ -1336,7 +1339,7 @@ int main(int argc, char *argv[]) {
                 if (tick_cpu(cpu_data, devices_data) != 0) { hard_exit = true; break; };
                 i++;
                 instruction_count++;
-                if (cpu_data->breakpoint_triggered) {
+                if (cpu_data->breakpoint_triggered && g_clean_mode_enable_breakpoints) {
                     cpu_dump_registers(cpu_data);
                     cpu_dump_ram(cpu_data);
                     printf("\x1b[90mBREAKPOINT\x1b[0m\n");
