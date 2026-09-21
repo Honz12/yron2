@@ -18,7 +18,7 @@ func main() {
     free_space_start = 0xFFFF;
     disk_size = 64 * 1024;
     
-    puts("STARTING READ FROM DISK ...");
+    puts("STARTING READ FROM DISK ...\n");
 
     breakpoint;
 
@@ -26,5 +26,5 @@ func main() {
     
    	breakpoint;
 
-    puts("READ FROM DISK COMPLETED");
+    puts("READ FROM DISK COMPLETED\n");
 }
