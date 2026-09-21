@@ -1,0 +1,17 @@
+filetype: yc
+
+detect:
+    filename: "\\.yc$"
+
+rules:
+    - preprocessor: "\\b(?i)(loc|alc)\\b"
+    - statement: "\\b(func|return|breakpoint|if|else|while|)\\b"
+
+    - constant.number: "\\b0x[0-9a-fA-F]+\\b"
+    - constant.number: "\\b0b[01]+\\b"
+    - constant.number: "\\b[0-9]+(\\.[0-9]+)?\\b"
+
+    - type: "\\b(u8|u16|u32|i8|i16|i32)\\b"
+
+    - string: "\"(\\\\.|[^\"])*\""
+    - string: "'(\\\\.|[^\'])*'"
