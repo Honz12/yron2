@@ -1,0 +1,24 @@
+filetype: yr2
+
+detect:
+    filename: "\\.yr2$"
+
+rules:
+    - preprocessor: "\\b(?i)(str|d8|dump8|d16|dump16|d32|dump32|org|fill)\\b"
+    # Instructions / Opcodes
+    - statement: "\\b(?i)(NOP|CALL|RET|INT|IRET|MOV|PUSH8|PUSH16|PUSH32|POP8|POP16|POP32|LDI8|LDI16|LDI32|LD8|LD16|LD32|LDP8|LDP16|LDP32|ST8|ST16|ST32|STP8|STP16|STP32|ADD|SUB|MUL|MULS|DIV|DIVS|MOD|MODS|INC|DEC|AND|NAND|OR|NOR|XOR|EQ|GT|GTE|LT|LTE|JMP|JZ|JNZ|LJMP|SND|RCV)\\b"
+    
+    # Hexadecimal, Binary, and Decimal Numbers
+    - constant.number: "\\b0x[0-9a-fA-F]+\\b"
+    - constant.number: "\\b0b[01]+\\b"
+    - constant.number: "\\b[0-9]+(\\.[0-9]+)?\\b"
+
+    # Labels (e.g., main:, loop_start:)
+    - type: "^[A-Za-z_][A-Za-z0-9_]*:"
+
+    # Strings
+    - string: "\"(\\\\.|[^\"])*\""
+    - string: "'(\\\\.|[^\'])*'"
+
+    # Comments (starting with ';')
+    - comment: ";.*"
