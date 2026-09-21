@@ -25,10 +25,8 @@ getc:
 	ret
 
 disk_read:
-    push32 0x10
     int 0x15
     mov 0x10 0x1f
-    pop32 0x10
     ret
 
 disk_write:
@@ -78,6 +76,7 @@ res32:
 ;
 wrt8:
     stp8 0x10 0x11
+    ret
 
 ; ----------------------------
 ; FUNCTION
@@ -85,6 +84,7 @@ wrt8:
 ;
 wrt16:
     stp16 0x10 0x11
+    ret
 
 ; ----------------------------
 ; FUNCTION
@@ -92,3 +92,4 @@ wrt16:
 ;
 wrt32:
     stp32 0x10 0x11
+    ret

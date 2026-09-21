@@ -2,6 +2,13 @@ from dataclasses import dataclass
 from typing import Any
 import shutil
 
+OPT_USE_ASCII = False
+OPT_CAN_SIMPLIFY_EXPRESIONS = True
+OPT_CAN_REMOVE_STANDALONE_LITERALS = True
+OPT_CAN_SIMPLIFY_IF_STATEMENTS = True
+OPT_INCLUDE_STD_CODE = True
+OPT_VAR_START_ADDR = 0x05
+
 ASCII_LINES = "||`-"
 UTF_LINES = "│├╰─"
 
@@ -61,6 +68,8 @@ TT_KW_LOC = "kw_loc"
 
 TT_KW_ALC = "kw_alc"
 
+TT_KW_BREAKPOINT = "kw_breakpoint"
+
 @dataclass
 class Token:
     t: str
@@ -119,6 +128,8 @@ KEYWORD_MAP = {
     "loc": TT_KW_LOC,
 
     "alc": TT_KW_ALC,
+
+    "breakpoint": TT_KW_BREAKPOINT,
 }
 
 SYMBOL_MAP = {
@@ -144,11 +155,6 @@ SYMBOL_MAP = {
     "&": TT_AND,
     "^": TT_XOR,
 }
-
-OPT_CAN_SIMPLIFY_EXPRESIONS = True
-OPT_CAN_REMOVE_STANDALONE_LITERALS = True
-OPT_CAN_SIMPLIFY_IF_STATEMENTS = True
-OPT_INCLUDE_STD_CODE = True
 
 class Lexer:
     def __init__(self, code: str, file_name: str):
@@ -349,7 +355,6 @@ class VariableData:
 
         return o
 
-OPT_USE_ASCII = False
 CSET = ASCII_LINES if OPT_USE_ASCII else UTF_LINES
 
 @dataclass
@@ -657,6 +662,11 @@ class AssignStatementNode(AstNode):
         o += self.format_as_child(self.value, True, "VALUE")
         return o
 
+@dataclass
+class BreakpointStatementNode(AstNode):
+    def __str__(self):
+        return "BreakpointStatement"
+
 VARIBLE_TYPES = {
     TT_KW_U8: (1, False),
     TT_KW_U16: (2, False),
@@ -818,6 +828,11 @@ class Parser:
                 base_token.v,
                 expr
             )
+
+        elif base_token.t == TT_KW_BREAKPOINT:
+            self.advance()
+            self.consume(TT_SEMI)
+            return BreakpointStatementNode(base_token.start, base_token.end)
 
         elif base_token.t in (TT_INT, TT_LPAREN, TT_IDEN, TT_KW_LOC, TT_KW_ALC):
             expr = self.make_expr()
@@ -1106,7 +1121,7 @@ class CodeGenerator:
 
     def allocate_variable(self, data: VariableData):
         self.display_compile_process("ALLOCATING VARIABLE" + AstNode.format_as_child(data, True))
-        r = VariableSymbol(data, len(self.allocator_bytes) + 0x05)
+        r = VariableSymbol(data, len(self.allocator_bytes) + OPT_VAR_START_ADDR)
         self.allocator_bytes += [0x00 for _ in range(data.size)]
         return r
 
@@ -1235,7 +1250,7 @@ class CodeGenerator:
             if not isinstance(space, LiteralIntNode):
                 return CompilerError("CODE GEN - Expected argument of alc(...) to be LiteralInt.", space.start_pos)
             
-            self.append("ldi32 ", hex(reg), " ", hex(len(self.allocator_bytes) + 0x05))
+            self.append("ldi32 ", hex(reg), " ", hex(len(self.allocator_bytes) + OPT_VAR_START_ADDR))
             self.allocator_bytes += [((node.cells[i].number if isinstance(node.cells[i], LiteralIntNode) else 0x00) if i < len(node.cells) else 0x00) for i in range(space.number)]
         else:
             return CompilerError(f"CODE GEN - AST node {type(node).__name__} can't be an expression.", node.start_pos)
@@ -1339,6 +1354,9 @@ class CodeGenerator:
         self.append("jmp ", start_label)
         self.append(end_label, ":")
 
+    def gen_BreakpointStatementNode(self, node: BreakpointStatementNode):
+        self.append("d8 0xFF")
+
 if __name__ == "__main__":
     from sys import argv
     command_line_args = argv[1:]
@@ -1371,6 +1389,10 @@ if __name__ == "__main__":
             OPT_INCLUDE_STD_CODE = a in ("True", "true", "1", "t")
             multi_arg_mode = ""
 
+        elif multi_arg_mode == "--var-start-addr":
+            OPT_VAR_START_ADDR = int(a, 0)
+            multi_arg_mode = ""
+
         elif a == "-o":
             multi_arg_mode = "-o"
 
@@ -1385,6 +1407,9 @@ if __name__ == "__main__":
 
         elif a == "--include-std-code":
             multi_arg_mode = "--include-std-code"
+
+        elif a == "--var-start-addr":
+            multi_arg_mode = "--var-start-addr"
 
         elif a == "-v":
             verbose = True

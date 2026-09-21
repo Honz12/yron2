@@ -26,6 +26,7 @@ ljmp 0x10 0x11
 ; CODE
 
 halt:
+    d8 0xFF
     jmp halt
 
 ; INTERRUPT HANDLERS
@@ -71,7 +72,7 @@ disk_write_int:
     iret
 
 ; ----------------------------------------------------------------------------------------
-disk_seek_in:
+disk_seek_int:
     call disk_seek
     iret
 
@@ -84,6 +85,8 @@ disk_seek_in:
 ;   0x10 - error message string pointer
 ;
 kernel_panic_handler:
+    d8 0xFF
+
     push32 0x10
 
     ldi32 0x10 ERROR_ANSI
@@ -129,6 +132,8 @@ kernel_panic_handler:
 ;   0x10 - error message string pointer
 ;
 kernel_error_handler:
+    d8 0xFF
+
     push32 0x10
 
     ldi32 0x10 ERROR_ANSI
@@ -155,8 +160,6 @@ kernel_error_handler:
     call puts               ; print full string
 
     call getc               ; wait for user input
-
-    pop32 0x00
 
     iret
 
@@ -292,7 +295,7 @@ putu:
 
     ldi8 0x11 0x00
     eq 0x10 0x11 0x11
-    jz .calc_loop 0x11  ; Continue if quotient != 0
+    jz .calc_loop 0x11      ; Continue if quotient != 0
 .print_loop:
     pop32 0x10              ; Pop ASCII character into 0x10 parameter
     call putc
@@ -300,7 +303,7 @@ putu:
     
     ldi8 0x11 0x00
     eq 0x13 0x11 0x11
-    jz .print_loop 0x11 ; Loop until all digits printed
+    jz .print_loop 0x11     ; Loop until all digits printed
 .end:
     pop32 0x13
     pop32 0x12
@@ -312,18 +315,37 @@ putu:
 ; ----------------------------------------------------------------------------------------
 ; SUBR: disk_read
 ;   Reads a byte from the DISKIO device
-; RETURNS:
-;   0x10 - byte
+; PARAMS:
+;   0x10 - num bytes
+;   0x11 - store_location
 ;
 disk_read:
-    ldi8 0x10 0x03 ; "DISKIO - Write / Read" port
-    rcv 0x10 0x10
+    push32 0x10
+    push32 0x11
+    push32 0x08
+.loop:
+    jz .end 0x10
+
+    ldi8 0x08 0x03          ; "DISKIO - Write / Read" port
+    rcv 0x08 0x08
+
+    stp8 0x08 0x11
+
+    dec 0x10
+    inc 0x11
+
+    jmp .loop
+.end:
+    pop32 0x08
+    pop32 0x11
+    pop32 0x10
+    d8 0xFF
     ret
 
 ; ----------------------------------------------------------------------------------------
 ; SUBR: disk_write
-;   Reads a byte from the DISKIO device
-; RETURNS:
+;   Writes a byte to the DISKIO device
+; PARAMS:
 ;   0x10 - byte
 ;
 disk_write:
@@ -335,7 +357,7 @@ disk_write:
 
 ; ----------------------------------------------------------------------------------------
 ; SUBR: disk_seek
-;   Reads a byte from the DISKIO device
+;   Seks to a certain position in the disk
 ; RETURNS:
 ;   0x10 - byte
 ;

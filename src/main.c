@@ -20,6 +20,7 @@ typedef struct {
     uint32_t regs[NUM_REGS];
     uint8_t *ram;
     uint32_t ram_size;
+    bool breakpoint_triggered;
 } CpuData;
 
 typedef struct {
@@ -100,7 +101,7 @@ bool g_clean_mode;
 bool g_verbose_mode;
 
 void snd_to_device(DevicesData *devices_data, uint32_t port, uint32_t msg) {
-    if (g_debug_mode) printf("SENT 0x%08x to 0x%02x\n", msg, port);
+    if (g_debug_mode) printf("\nSENT 0x%08x to 0x%02x\n", msg, port);
     switch (port)
     {
         case 0: // NULL device
@@ -292,10 +293,7 @@ int cpu_make_interrupt(CpuData *cpu_data, uint8_t value) {
         (cpu_get_ram(cpu_data, int_field_start + 2) << 16) | ((uint32_t)cpu_get_ram(cpu_data, int_field_start + 3) << 24);
 
         cpu_data->regs[REG_PC] = int_address;
-        if (g_verbose_mode) {
-            printf("\nINT 0x%02x called, IFS: 0x%08x, return pc: 0x%08x, jumping to 0x%08x\nConfirm continuation by pressing any key ...", value, int_field_start, return_pc, int_address);
-            getchar();
-        }
+        printf("\n\x1b[90mINT 0x%02x called, IFS: 0x%08x, return pc: 0x%08x, jumping to 0x%08x\x1b[0m\n", value, int_field_start, return_pc, int_address);
     }
     else {
         printf("INVALID INTERRUPT 0x%02x\n", value);
@@ -322,15 +320,21 @@ void cpu_dump_registers(CpuData *cpu_data) {
     }
 }
 
-void cpu_dump_ram(CpuData* cpu_data, uint8_t bytes_per_line, uint8_t lines) {
+void cpu_dump_ram(CpuData* cpu_data) {
+    const uint8_t lines = 24;
+    const uint8_t bytes_per_line = 16;
+
     uint32_t bytes_to_display = lines * bytes_per_line;
     uint32_t raw_pc = cpu_data->regs[REG_PC] + cpu_data->regs[REG_MS];
+    uint32_t raw_ms = cpu_data->regs[REG_MS];
+    uint32_t raw_sp = cpu_data->regs[REG_SP];
+    uint8_t line = 0;
 
     for (uint32_t i = 0; i < bytes_to_display; i += bytes_per_line)
     {
-        uint32_t line_origin = (raw_pc / bytes_per_line - 2) * bytes_per_line + i;
+        uint32_t line_origin = (raw_pc / bytes_per_line - lines / 2) * bytes_per_line + i;
 
-        printf("0x%08x: ", line_origin);
+        printf("0x%08x: \x1b[1m", line_origin);
 
         for (uint8_t o = 0; o < bytes_per_line; o++)
         {
@@ -341,11 +345,13 @@ void cpu_dump_ram(CpuData* cpu_data, uint8_t bytes_per_line, uint8_t lines) {
                 byte = cpu_data->ram[byte_addr];
             }
 
-            if (byte_addr == raw_pc) printf("\x1b[33m%02x \x1b[0m", byte);
-            else if (byte == 0x00) printf("\x1b[90m%02x \x1b[0m", byte);
+            if (byte_addr == raw_pc) printf("\x1b[103;30m%02x\x1b[0;1m ", byte);
+            else if (byte_addr == raw_ms) printf("\x1b[105;30m%02x\x1b[0;1m ", byte);
+            else if (byte_addr == raw_sp) printf("\x1b[104;30m%02x\x1b[0;1m ", byte);
             else printf("%02x ", byte);
         }
-        putc('\n', stdout);
+        printf("\x1b[0m\n");
+        line++;
     }
     
 }
@@ -1055,6 +1061,8 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data) {
 
                 cpu_data->regs[REG_MS] = memory_segment;
                 cpu_data->regs[REG_PC] = program_counter;
+                
+                cpu_data->breakpoint_triggered = true;
             }
             break;
         
@@ -1079,11 +1087,20 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data) {
                 cpu_set_reg(cpu_data, str_reg, rcv_from_device(devices_data, cpu_get_reg(cpu_data, port_reg)));
             }
             break;
+        
+        /*
+        case 0xFF: // Breakpoint
+            cpu_data->regs[REG_PC]++;
+            cpu_data->breakpoint_triggered = true;
+            break;
+        */
 
         default:
             printf("\nInstruction 0x%02x at 0x%08x (PC:0x%08x MS:0x%08x) is not supported\n", opcode, cpu_data->regs[REG_PC] + cpu_data->regs[REG_MS], cpu_data->regs[REG_PC], cpu_data->regs[REG_MS]);
+
+            cpu_data->breakpoint_triggered = true;
             cpu_data->regs[REG_PC]++;
-            return 1;
+            break;
     }
     return 0;
 }
@@ -1202,6 +1219,8 @@ int main(int argc, char *argv[]) {
         cpu_data->regs[i] = 0;
     }
 
+    cpu_data->breakpoint_triggered = false;
+
     // LOAD BINARY FILE
 
     printf("\n------------------- LOADING ROM FILE -------------------\n");
@@ -1268,7 +1287,7 @@ int main(int argc, char *argv[]) {
     while (true) {
         if (g_debug_mode) {
             cpu_dump_registers(cpu_data);
-            cpu_dump_ram(cpu_data, 32, 16);
+            cpu_dump_ram(cpu_data);
             if (cpu_data->regs[REG_PC] < cpu_data->ram_size) {
                 uint8_t opcode = cpu_get_ram(cpu_data, cpu_data->regs[REG_PC]);
                 char* alias = instruction_names[opcode];
@@ -1285,15 +1304,28 @@ int main(int argc, char *argv[]) {
             printf(
                 "TICK: %10d\n"
                 "IPS:  %10u\n"
-                "\nPress any to step ...\n", i, current_ips);
+                "\nPress - Q to quit, B to continue to next breakpoint, SPACE to step ...\n", i, current_ips);
 
             char c = getchar();
 
             if (c == 'q') {
                 break;
             }
-
-            system("clear");
+            else if (c == 'b') {
+                bool hard_exit = false; 
+                while (!cpu_data->breakpoint_triggered) {
+                    if (tick_cpu(cpu_data, devices_data) != 0) { hard_exit = true; break; };
+                    i++;
+                    instruction_count++;
+                };
+                if (hard_exit) break;
+                cpu_data->breakpoint_triggered = false;
+                continue;
+            }
+            else if (c == ' ') {}
+            else {
+                continue;
+            }
         };
 
         update_devices(devices_data);
@@ -1304,6 +1336,15 @@ int main(int argc, char *argv[]) {
                 if (tick_cpu(cpu_data, devices_data) != 0) { hard_exit = true; break; };
                 i++;
                 instruction_count++;
+                if (cpu_data->breakpoint_triggered) {
+                    cpu_dump_registers(cpu_data);
+                    cpu_dump_ram(cpu_data);
+                    printf("\x1b[90mBREAKPOINT\x1b[0m\n");
+                    getchar();
+                    cpu_data->breakpoint_triggered = false;
+
+                    break;
+                }
             }
             if (hard_exit) break;
         }
