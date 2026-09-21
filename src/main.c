@@ -294,7 +294,7 @@ int cpu_make_interrupt(CpuData *cpu_data, uint8_t value) {
         (cpu_get_ram(cpu_data, int_field_start + 2) << 16) | ((uint32_t)cpu_get_ram(cpu_data, int_field_start + 3) << 24);
 
         cpu_data->regs[REG_PC] = int_address;
-        printf("\n\x1b[90mINT 0x%02x called, IFS: 0x%08x, return pc: 0x%08x, jumping to 0x%08x\x1b[0m\n", value, int_field_start, return_pc, int_address);
+        if (g_debug_mode || g_clean_mode_enable_breakpoints || g_verbose_mode) printf("\n\x1b[90mINT 0x%02x called, IFS: 0x%08x, return pc: 0x%08x, jumping to 0x%08x\x1b[0m\n", value, int_field_start, return_pc, int_address);
     }
     else {
         printf("INVALID INTERRUPT 0x%02x\n", value);
@@ -1097,7 +1097,7 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data) {
         */
 
         default:
-            printf("\nInstruction 0x%02x at 0x%08x (PC:0x%08x MS:0x%08x) is not supported\n", opcode, cpu_data->regs[REG_PC] + cpu_data->regs[REG_MS], cpu_data->regs[REG_PC], cpu_data->regs[REG_MS]);
+            if (g_debug_mode || g_clean_mode_enable_breakpoints || g_verbose_mode) printf("\nInstruction 0x%02x at 0x%08x (PC:0x%08x MS:0x%08x) is not supported\n", opcode, cpu_data->regs[REG_PC] + cpu_data->regs[REG_MS], cpu_data->regs[REG_PC], cpu_data->regs[REG_MS]);
 
             cpu_data->breakpoint_triggered = true;
             cpu_data->regs[REG_PC]++;
