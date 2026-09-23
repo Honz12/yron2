@@ -1,7 +1,6 @@
 #!/bin/python3
 from dataclasses import dataclass
-from typing import Any, List, Optional
-import sys
+from typing import Any
 
 TT_CONST = "const"
 TT_INST = "inst"
@@ -23,7 +22,7 @@ IA_4B = "4 bytes"
 @dataclass
 class InstructionData:
     opcode: int
-    args: List[str]
+    args: list[str]
 
 INST_FORMATS = {
     "NOP":      InstructionData(0x00, []),
@@ -96,10 +95,18 @@ INST_FORMATS = {
 
 DIRECTIVES = {
     "str": TT_DIR_STR,
-    "d8": TT_DIR_DUMP8, "dump8": TT_DIR_DUMP8,
-    "d16": TT_DIR_DUMP16, "dump16": TT_DIR_DUMP16,
-    "d32": TT_DIR_DUMP32, "dump32": TT_DIR_DUMP32,
+
+    "d8": TT_DIR_DUMP8,
+    "dump8": TT_DIR_DUMP8,
+
+    "d16": TT_DIR_DUMP16,
+    "dump16": TT_DIR_DUMP16,
+
+    "d32": TT_DIR_DUMP32,
+    "dump32": TT_DIR_DUMP32,
+
     "org": TT_DIR_ORG,
+
     "fill": TT_DIR_FILL,
 }
 
@@ -107,7 +114,6 @@ DIRECTIVES = {
 class Token:
     t: str
     v: Any
-    line: int = 1
 
 DIGITS = "0123456789"
 HEX_CHARS = DIGITS + "abcdefABCDEF"
@@ -117,100 +123,110 @@ ALPHA = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_."
 ALNUM = ALPHA + DIGITS
 
 class Lexer:
-    def __init__(self, code: str, verbose: bool = False):
+    def __init__(self, code: str, verbose = False):
         self.code = code
         self.idx = -1
-        self.c: Optional[str] = None
-        self.line = 1
+        self.c = None
         self.verbose = verbose
+
         self.advance()
 
     def advance(self):
-        if self.c == "\n":
-            self.line += 1
         self.idx += 1
-        self.c = self.code[self.idx] if self.idx < len(self.code) else None
 
-    def get_tokens(self) -> Optional[List[Token]]:
-        tokens: List[Token] = []
+        if self.idx < len(self.code):
+            self.c = self.code[self.idx]
+        else:
+            self.c = None
+
+    def get_tokens(self):
+        tokens: list[Token] = []
 
         while self.c is not None:
             if self.c == ";":
                 while self.c is not None and self.c != "\n":
                     self.advance()
-            elif self.c in " \n\t\r":
+            elif self.c in " \n\t":
                 self.advance()
             elif self.c in DIGITS:
                 t = self.get_int()
-                if t is None: return None
+                if t is None:
+                    return
                 tokens.append(t)
             elif self.c in ALPHA:
                 t = self.get_iden()
-                if t is None: return None
+                if t is None:
+                    return
                 tokens.append(t)
             elif self.c == '"':
                 t = self.get_string()
-                if t is None: return None
+                if t is None:
+                    return
                 tokens.append(t)
             elif self.c == "'":
                 t = self.get_char()
-                if t is None: return None
+                if t is None:
+                    return
                 tokens.append(t)
-            else:
-                print(f"Error: Unexpected character {repr(self.c)} at line {self.line}")
-                return None
 
         return tokens
 
-    def get_int(self) -> Optional[Token]:
+    def get_int(self):
         base = 10
         allowed = DIGITS
         str_repr = ""
-        current_line = self.line
 
         if self.c == "0":
             self.advance()
+
             if self.c == "x":
-                self.advance(); base = 16; allowed = HEX_CHARS
+                self.advance()
+                base = 16
+                allowed = HEX_CHARS
+
             elif self.c == "b":
-                self.advance(); base = 2; allowed = BIN_CHARS
+                self.advance()
+                base = 2
+                allowed = BIN_CHARS
+
             elif self.c == "o":
-                self.advance(); base = 8; allowed = OCT_CHARS
+                self.advance()
+                base = 8
+                allowed = OCT_CHARS
+
             else:
                 str_repr = "0"
 
-        while self.c is not None and self.c in allowed:
+        while self.c is not None:
+            if self.c not in allowed:
+                break
+
             str_repr += self.c
             self.advance()
 
-        try:
-            val = int(str_repr, base)
-        except ValueError:
-            print(f"Error: Invalid numeric literal at line {current_line}")
-            return None
+        return Token(TT_CONST, int(str_repr, base))
 
-        return Token(TT_CONST, val, current_line)
-
-    def get_iden(self) -> Optional[Token]:
+    def get_iden(self):
         str_repr = ""
-        current_line = self.line
 
-        while self.c is not None and self.c in ALNUM:
+        while self.c is not None:
+            if self.c not in ALNUM:
+                break
+
             str_repr += self.c
             self.advance()
 
         if str_repr.upper() in INST_FORMATS:
-            return Token(TT_INST, str_repr.upper(), current_line)
+            return Token(TT_INST, str_repr.upper())
         elif str_repr.lower() in DIRECTIVES:
-            return Token(DIRECTIVES[str_repr.lower()], None, current_line)
+            return Token(DIRECTIVES[str_repr.lower()], None)
         elif self.c == ":":
             self.advance()
-            return Token(TT_LDEF, str_repr, current_line)
+            return Token(TT_LDEF, str_repr)
         else:
-            return Token(TT_IDEN, str_repr, current_line)
+            return Token(TT_IDEN, str_repr)
 
-    def get_string(self) -> Optional[Token]:
-        current_line = self.line
+    def get_string(self):
         self.advance()
         chars = ""
         
@@ -220,189 +236,273 @@ class Lexer:
                 break
             elif self.c == "\\":
                 self.advance()
-                escape_map = {"\\": "\\", "n": "\n", "t": "\t", "r": "\r", "a": "\a", "e": "\x1b", "0": "\0"}
-                chars += escape_map.get(self.c, self.c if self.c else "")
+                match self.c:
+                    case "\\":
+                        chars += "\\"
+                    case "n":
+                        chars += "\n"
+                    case "t":
+                        chars += "\t"
+                    case "r":
+                        chars += "\r"
+                    case "a":
+                        chars += "\a"
+                    case "e":
+                        chars += "\x1b"
+                    case "0":
+                        chars += "\0"
                 self.advance()
             else:
                 chars += self.c
                 self.advance()
-        else:
-            print(f"Error: Unterminated string literal starting at line {current_line}")
-            return None
 
-        return Token(TT_STRING, chars, current_line)
+        return Token(TT_STRING, chars)
 
-    def get_char(self) -> Optional[Token]:
-        current_line = self.line
+    def get_char(self):
         self.advance()
 
         if self.c is None:
-            print(f"Error: Expected character after `'` at line {current_line}")
-            return None
+            print("EXPECTED CHARACTER AFTER `'`")
+            return
 
         if self.c == '\\':
             self.advance()
-            cmap = {"\\": ord("\\"), "n": ord("\n"), "t": ord("\t"), "a": ord("\a"), "e": ord("\x1b"), "0": 0}
+            if self.c is None:
+                print("EXPECTED CHARACTER AFTER `\\` IN CHARACTER LITERAL")
+                return
+            cmap = {
+                "\\": ord("\\"),
+                "n": ord("\n"),
+                "t": ord("\t"),
+                "a": ord("\a"),
+                "e": ord("\x1b"),
+                "0": 0,
+            }
             c = cmap.get(self.c, 0)
         else:
             c = ord(self.c)
 
         self.advance()
+
         if self.c != "'":
-            print(f"Error: Expected `'` after character literal at line {current_line}")
-            return None
+            print("EXPECTED `'` AFTER CHARACTER LITERAL")
+            return
 
         self.advance()
-        return Token(TT_CONST, c, current_line)
+
+        return Token(TT_CONST, c)
 
 class CodeGenerator:
-    def __init__(self, tokens: List[Token], verbose: bool = False):
+    def __init__(self, tokens: list[Token], verbose = False):
         self.tokens = tokens
         self.i = -1
-        self.t: Optional[Token] = None
+        self.t = None
         self.verbose = verbose
+
         self.advance()
 
     def advance(self):
         self.i += 1
-        self.t = self.tokens[self.i] if self.i < len(self.tokens) else None
+
+        if self.i < len(self.tokens):
+            self.t = self.tokens[self.i]
+        else:
+            self.t = None
 
     @staticmethod
-    def int_to_2bytes(i: int) -> List[int]:
-        return [i & 0xFF, (i >> 8) & 0xFF]
+    def int_to_2bytes(i: int):
+        return [i % 256, (i >> 8) % 256]
 
     @staticmethod
-    def int_to_4bytes(i: int) -> List[int]:
-        return [i & 0xFF, (i >> 8) & 0xFF, (i >> 16) & 0xFF, (i >> 24) & 0xFF]
+    def int_to_4bytes(i: int):
+        return [i % 256, (i >> 8) % 256, (i >> 16) % 256, (i >> 24) % 256]
 
-    def get_bytes(self) -> Optional[bytes]:
+    def get_bytes(self):
         @dataclass
         class ValuePostReplacement:
             address: int
             size: int
             name: str
-            line: int
 
-        out: List[int] = []
+        out: list[int] = []
         names: dict[str, int] = {}
         current_label_scope = ""
-        value_post_replacements: List[ValuePostReplacement] = []
+        value_post_replacements: list[ValuePostReplacement] = []
 
-        def resolve_label(label: str) -> str:
+        def resolve_label(label: str):
             if label.startswith("."):
                 return current_label_scope + label
             return label
 
-        while self.t is not None:
+        if self.verbose: print("-" * 50)
+
+        while self.t != None:
             if self.t.t == TT_LDEF:
                 name = str(self.t.v)
-                full_name = current_label_scope + name if name.startswith(".") else name
-                if not name.startswith("."):
+                if name.startswith("."):
+                    name = current_label_scope + name
+                else:
                     current_label_scope = name
-                
-                if full_name in names:
-                    print(f"Error: Duplicate label {repr(full_name)} at line {self.t.line}")
-                    return None
-
-                names[full_name] = len(out)
-                if self.verbose: print(f"New label {full_name} at address {len(out)}")
+                if self.verbose: print(f"NEW LABEL {name} AT {len(out)}")
+                names[name] = len(out)
                 self.advance()
-
             elif self.t.t == TT_INST:
                 inst_tok = self.t
+
                 self.advance()
+
                 inst_data = INST_FORMATS[inst_tok.v]
+                if self.verbose: print(inst_tok.v, "-", inst_data)
+
                 out.append(inst_data.opcode)
 
                 for arg_req in inst_data.args:
                     if self.t is None:
-                        print(f"Error: Expected argument for instruction {inst_tok.v} at line {inst_tok.line}")
-                        return None
-                    
-                    if self.t.t == TT_CONST:
-                        if arg_req == IA_1B: out.append(self.t.v & 0xFF)
-                        elif arg_req == IA_2B: out += self.int_to_2bytes(self.t.v)
-                        elif arg_req == IA_4B: out += self.int_to_4bytes(self.t.v)
+                        print(f"Expected argument after {(inst_tok.v)}")
+                        return
+                    elif self.t.t == TT_CONST:
+                        if arg_req == IA_1B:
+                            out.append(self.t.v % 256)
+                        if arg_req == IA_2B:
+                            out += self.int_to_2bytes(self.t.v)
+                        if arg_req == IA_4B:
+                            out += self.int_to_4bytes(self.t.v)
+
                         self.advance()
                     elif self.t.t == TT_IDEN:
-                        size = 1 if arg_req == IA_1B else (2 if arg_req == IA_2B else 4)
-                        value_post_replacements.append(ValuePostReplacement(len(out), size, resolve_label(self.t.v), self.t.line))
-                        out += [0xFF] * size
+                        if arg_req == IA_1B:
+                            value_post_replacements.append(ValuePostReplacement(len(out), 1, resolve_label(self.t.v)))
+                            out += [0xFF]
+                        if arg_req == IA_2B:
+                            value_post_replacements.append(ValuePostReplacement(len(out), 2, resolve_label(self.t.v)))
+                            out += [0xFF, 0xFF]
+                        if arg_req == IA_4B:
+                            value_post_replacements.append(ValuePostReplacement(len(out), 4, resolve_label(self.t.v)))
+                            out += [0xFF, 0xFF, 0xFF, 0xFF]
+
                         self.advance()
                     else:
-                        print(f"Error: Invalid argument type for instruction {inst_tok.v} at line {self.t.line}")
-                        return None
-
-            elif self.t.t in [TT_DIR_DUMP8, TT_DIR_DUMP16, TT_DIR_DUMP32]:
-                dir_type = self.t.t
+                        print(f"Instrution argument can't be type {repr(self.t.t)}")
+                        return
+            elif self.t.t == TT_DIR_DUMP8:
                 self.advance()
+
                 if self.t is None:
-                    print("Error: Expected value after directive")
-                    return None
-
-                size = 1 if dir_type == TT_DIR_DUMP8 else (2 if dir_type == TT_DIR_DUMP16 else 4)
+                    print("Expected constant or identifier after DUMP8 (D8)")
+                    return
+                
                 if self.t.t == TT_CONST:
-                    if size == 1: out.append(self.t.v & 0xFF)
-                    elif size == 2: out += self.int_to_2bytes(self.t.v)
-                    else: out += self.int_to_4bytes(self.t.v)
+                    out.append(self.t.v % 256)
                 elif self.t.t == TT_IDEN:
-                    value_post_replacements.append(ValuePostReplacement(len(out), size, resolve_label(self.t.v), self.t.line))
-                    out += [0xFF] * size
+                    value_post_replacements.append(ValuePostReplacement(len(out), 1, resolve_label(self.t.v)))
+                    out += [0xFF]
+                self.advance()
+            elif self.t.t == TT_DIR_DUMP16:
                 self.advance()
 
+                if self.t is None:
+                    print("Expected constant or identifier after DUMP16 (D16)")
+                    return
+
+                if self.t.t == TT_CONST:
+                    out += self.int_to_2bytes(self.t.v)
+                elif self.t.t == TT_IDEN:
+                    value_post_replacements.append(ValuePostReplacement(len(out), 2, resolve_label(self.t.v)))
+                    out += [0xFF, 0xFF]
+                self.advance()
+            elif self.t.t == TT_DIR_DUMP32:
+                self.advance()
+
+                if self.t is None:
+                    print("Expected constant or identifier after DUMP32 (D32)")
+                    return
+
+                if self.t.t == TT_CONST:
+                    out += self.int_to_4bytes(self.t.v)
+                elif self.t.t == TT_IDEN:
+                    value_post_replacements.append(ValuePostReplacement(len(out), 4, resolve_label(self.t.v)))
+                    out += [0xFF, 0xFF, 0xFF, 0xFF]
+                self.advance()
             elif self.t.t == TT_DIR_STR:
                 self.advance()
-                if self.t is None or self.t.t != TT_STRING:
-                    print("Error: Expected string literal after STR directive")
-                    return None
-                for c in self.t.v:
-                    out.append(ord(c) & 0xFF)
-                self.advance()
 
+                if self.t is None:
+                    print("Expected string after STR")
+                    return
+
+                if self.t.t == TT_STRING:
+                    for c in self.t.v:
+                        utf = ord(c)
+                        if (utf < 256):
+                            out.append(utf)
+                        else:
+                            print(f"Character {repr(c)} can't be converted to extended ASCII (index over 255), inserting 0x00")
+                            out.append(0)
+                self.advance()
             elif self.t.t == TT_DIR_ORG:
                 self.advance()
-                if self.t is None or self.t.t != TT_CONST:
-                    print("Error: Expected numeric constant after ORG directive")
-                    return None
-                if self.t.v < len(out):
-                    print(f"Error: ORG address {self.t.v} overlaps with existing code (current length {len(out)})")
-                    return None
-                while len(out) < self.t.v:
-                    out.append(0x00)
-                self.advance()
 
+                if self.t is None:
+                    print("Expected constant after ORG")
+                    return
+
+                if self.t.t == TT_CONST:
+                    while len(out) < self.t.v:
+                        out.append(0x00)
+                
+                self.advance()
             elif self.t.t == TT_DIR_FILL:
                 self.advance()
-                if self.t is None or self.t.t != TT_CONST:
-                    print("Error: Expected numeric constant after FILL directive")
-                    return None
-                out += [0x00] * self.t.v
+
+                if self.t is None:
+                    print("Expected constant after FILL")
+                    return
+
+                if self.t.t == TT_CONST:
+                    out += [0x00 for _ in range(self.t.v)]
+
                 self.advance()
-
             else:
-                print(f"Error: Unknown token {repr(self.t.t)} at line {self.t.line}")
-                return None
+                print(f"UNKNOWN TOKEN {repr(self.t.t)}:{repr(self.t.v)}")
+                self.advance()
+                return
 
-        # Resolve labels
+        # Post Value Replacement
+
+        if self.verbose: print("\n----- NAMED REPLACEMENTS -----")
+
         for replace in value_post_replacements:
             if replace.name in names:
-                val = names[replace.name]
-                num_bytes = [val & 0xFF] if replace.size == 1 else (self.int_to_2bytes(val) if replace.size == 2 else self.int_to_4bytes(val))
-                for o, b in enumerate(num_bytes):
+                if self.verbose: print(replace)
+                value = names[replace.name]
+                number = []
+                if replace.size == 1:
+                    number = [value % 256]
+                elif replace.size == 2:
+                    number = self.int_to_2bytes(value)
+                elif replace.size == 4:
+                    number = self.int_to_4bytes(value)
+
+                for o, b, in enumerate(number):
                     out[replace.address + o] = b
             else:
-                print(f"Error: Undefined label/identifier {repr(replace.name)} referenced at line {replace.line}")
-                return None
+                print(f"Name {repr(replace.name)} does not exist.")
+
+        if self.verbose: print("\n" + "-" * 50)
 
         return bytes(out)
 
 if __name__ == "__main__":
+    from sys import argv
+    args = argv[1:]
+
     input_files = []
     output_file = "out.bin"
+
     verbose = False
 
-    args = sys.argv[1:]
     setting_out = False
+
     for a in args:
         if setting_out:
             output_file = a
@@ -414,33 +514,41 @@ if __name__ == "__main__":
         else:
             input_files.append(a)
 
-    if not input_files:
-        print("Usage: python assembler.py <input_file(s)> [-o output_file] [-v]")
-        sys.exit(1)
+    if verbose: print(f"Input files: {", ".join(input_files)}")
+    if verbose: print(f"Output file: {output_file}")
 
-    input_text = ""
+    input_text: str = ""
+
     for ifile in input_files:
         try:
             with open(ifile, "r") as f:
-                input_text += f"\n; --- FILE {ifile} ---\n" + f.read() + "\n"
+                cont = f.read()
+                input_text += f"; {'-' * 50}\n; FILE {ifile}\n; {'-' * 50}\n" + cont + "\n"
+            if verbose: print(f"Opened file {ifile}, ({cont.count("\n") + 1} lines)")
         except Exception as e:
-            print(f"Error: Failed to open file {ifile}: {e}")
-            sys.exit(1)
+            print(f"Failed to open file {ifile}")
+            if verbose: print(e)
+
+    if verbose: print(f"\x1b[90m{input_text}\x1b[0m")
 
     lexer = Lexer(input_text, verbose)
     tokens = lexer.get_tokens()
+
     if tokens is None:
-        sys.exit(1)
+        exit(1)
+
+    if verbose: print(", ".join(
+        map(
+            lambda a: str(a),
+            tokens
+        )
+    ))
 
     code_gen = CodeGenerator(tokens, verbose)
     out = code_gen.get_bytes()
-    if out is None:
-        sys.exit(1)
 
-    try:
-        with open(output_file, "wb") as of:
-            of.write(out)
-        print(f"Successfully assembled {len(out)} bytes into {output_file}")
-    except Exception as e:
-        print(f"Error: Failed to write to output file {output_file}: {e}")
-        sys.exit(1)
+    if out is None:
+        exit(1)
+
+    with open(output_file, "wb") as of:
+        of.write(out)
