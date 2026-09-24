@@ -154,8 +154,7 @@ def get_disk_data(disk: list[int]):
     header = HeaderSection(
         make_int_from_bytes(header_section.read_bytes(4)),
         
-        bytes(header_section.read_bytes(32)).decode("utf-8").
-        replace("\0", ""),
+        bytes(header_section.read_bytes(32)).decode("utf-8").replace("\0", ""),
         make_int_from_bytes(header_section.read_bytes(4)),
         make_int_from_bytes(header_section.read_bytes(4)),
         
