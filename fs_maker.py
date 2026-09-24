@@ -151,12 +151,33 @@ def format_disk(disk: list[int]):
 
 def get_disk_data(disk: list[int]):
     header_section = get_section(disk, 0x0000)
+    header = HeaderSection(
+        make_int_from_bytes(header_section.read_bytes(4)),
+        
+        bytes(header_section.read_bytes(32)).decode("utf-8").
+        replace("\0", ""),
+        make_int_from_bytes(header_section.read_bytes(4)),
+        make_int_from_bytes(header_section.read_bytes(4)),
+        
+        make_int_from_bytes(header_section.read_bytes(4)),
+    )
+
+    print(header)
 
 if __name__ == "__main__":
-    with open("disk.bin", "r+b") as f:
+    from sys import argv
+    if len(argv) < 3:
+        print("Not enough arguments.")
+        exit(1)
+    
+    with open(argv[1], "r+b") as f:
         disk: list[int] = list(f.read())
-        
-        format_disk(disk)
+
+        match argv[2]:
+            case "format":
+                format_disk(disk)
+            case "get":
+                data = get_disk_data(disk)
 
         f.seek(0x0000)
         f.write(bytes(disk))
