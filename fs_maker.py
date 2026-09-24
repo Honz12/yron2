@@ -12,8 +12,12 @@ Sections:
 
 Header Section (C struct):
     struct {
-        uint32_t file_table_pointer; // Pointer to the file table
-        uint8_t[32] disk_name;
+        uint32_t file_table_pointer;        // Pointer to the file table
+
+        uint8_t[32] disk_name;              // Information about the disk
+        uint32_t disk_section_count;
+        uint32_t disk_section_data_size;
+
         uint32_t first_free_section;
     }
 
@@ -46,13 +50,13 @@ SECTION_SIZE = SECTION_DATA_SIZE + SECTION_META_SIZE
 
 @dataclass
 class DiskSection:
-    data: bytes
-    meta: bytes
+    data: list[int]
+    meta: list[int]
     seeking: int = 0
 
     @staticmethod
     def new():
-        return DiskSection(bytes(SECTION_DATA_SIZE), bytes(SECTION_META_SIZE))
+        return DiskSection([0x00 for _ in range(SECTION_DATA_SIZE)], [0x00 for _ in range(SECTION_META_SIZE)])
 
     @staticmethod
     def from_bytes(data: bytes):
@@ -60,13 +64,13 @@ class DiskSection:
     
     def write_byte(self, byte: int):
         if self.seeking < SECTION_DATA_SIZE:
-            self.data[self.seeking]
+            self.data[self.seeking] = byte
             self.seeking += 1
         else:
             self.seeking = 0
 
     def write_data(self, written: bytes):
-        for b in written: self.write_byte(written)
+        for b in written: self.write_byte(b)
     
     def read_bytes(self, num_bytes):
         data = self.data[self.seeking:self.seeking + num_bytes]
@@ -74,7 +78,13 @@ class DiskSection:
         return data
     
     def get_bytes(self):
-        return self.data + self.meta
+        return bytes(self.data + self.meta)
+
+    def write_uint32(self, u: int):
+        self.write_data(bytes([u % 256, (u >> 8) % 256, (u >> 16) % 256, (u >> 24) % 256]))
+
+    def write_uint16(self, u: int):
+        self.write_data(bytes([u % 256, (u >> 8) % 256]))
 
 def make_int_from_bytes(bs: bytes):
     return bs[0] | bs[1] << 8 | bs[2] << 16 | bs[3] << 24
@@ -85,32 +95,42 @@ def get_section(disk: list[int], idx: int):
 def write_section(disk: list[int], idx: int, section: DiskSection):
     for i, b in enumerate(section.get_bytes()):
         disk[idx * SECTION_SIZE + i] = b
-    print(f"Written {len(bs)} bytes to disk.")
+    print(f"Written {len(section.get_bytes())} bytes to disk.")
 
 def get_file_from(disk: list[int], section: int):
-    data = bytes()
+    data = list()
     while True:
         print(f"<CONTINUES DATA READ {section}>")
 
         s = get_section(disk, section)
-        data += s[:SECTION_DATA_SIZE]
-        meta = make_int_from_bytes(s[SECTION_DATA_SIZE:SECTION_DATA_SIZE + SECTION_META_SIZE])
+        data += s.data
+        meta = make_int_from_bytes(s.meta)
 
         if meta == 0:
-            return
+            return data
         
         section = meta
+
+def format_disk(disk: list[int]):
+    header_section = get_section(disk, 0x0000)
+
+    header_section.write_uint32(0x0001)
+    header_section.write_data(bytes("FungOS DISK".ljust(32, '\0'), "utf-8"))
+    
+    header_section.write_uint32(len(disk) / SECTION_SIZE)
+    header_section.write_uint32(SECTION_DATA_SIZE)
+
+    header_section.write_uint32(0x0002)
+
+    write_section(disk, 0x0000, header_section)
 
 if __name__ == "__main__":
     with open("disk.bin", "r+b") as f:
         disk: list[int] = list(f.read())
-        header_section = get_section(disk, 0x0000)
+        
+        format_disk(disk)
 
-        header_section.write_data(bytes("Hello world!\0", "utf-8"))
+        print(disk[:SECTION_SIZE])
 
-        write_section(disk, 0x0000, header_section)
-
-        with open("test_header_section.bin", "wb") as test_header_section:
-            test_header_section.write(get_section(disk, 0x0000).get_bytes())
-        get_section(disk, 0x0000)
+        f.seek(0x0000)
         f.write(bytes(disk))
