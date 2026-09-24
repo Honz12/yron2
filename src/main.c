@@ -323,7 +323,7 @@ void cpu_dump_registers(CpuData *cpu_data) {
 
 void cpu_dump_ram(CpuData* cpu_data) {
     const uint8_t lines = 8;
-    const uint8_t bytes_per_line = 64;
+    const uint8_t bytes_per_line = 16;
 
     uint32_t bytes_to_display = lines * bytes_per_line;
     uint32_t raw_pc = cpu_data->regs[REG_PC] + cpu_data->regs[REG_MS];

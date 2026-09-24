@@ -3,3 +3,4 @@ cbuild/
 *.bin
 testing_scripts.py
 __pycache__/
+test_*
