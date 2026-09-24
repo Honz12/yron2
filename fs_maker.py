@@ -30,7 +30,12 @@ File Table:
 @dataclass
 class HeaderSection:
     file_table_pointer: int
+    
     disk_name: str
+    disk_section_count: int
+    disk_section_data_size: int
+
+    first_free_section: int
 
 @dataclass
 class FileEntry:
@@ -44,7 +49,13 @@ class FreeSection:
 class FileTable:
     entries: List[FileEntry]
 
-SECTION_DATA_SIZE = 256
+@dataclass
+class DiskData:
+    data: list[int]
+    header: HeaderSection
+    file_table: FileTable
+
+SECTION_DATA_SIZE = 252
 SECTION_META_SIZE = 4
 SECTION_SIZE = SECTION_DATA_SIZE + SECTION_META_SIZE
 
@@ -95,7 +106,7 @@ def get_section(disk: list[int], idx: int):
 def write_section(disk: list[int], idx: int, section: DiskSection):
     for i, b in enumerate(section.get_bytes()):
         disk[idx * SECTION_SIZE + i] = b
-    print(f"Written {len(section.get_bytes())} bytes to disk.")
+    #print(f"Written {len(section.get_bytes())} bytes to disk.")
 
 def get_file_from(disk: list[int], section: int):
     data = list()
@@ -116,21 +127,36 @@ def format_disk(disk: list[int]):
 
     header_section.write_uint32(0x0001)
     header_section.write_data(bytes("FungOS DISK".ljust(32, '\0'), "utf-8"))
+
+    section_count = len(disk) // SECTION_SIZE
+    unused_space = len(disk) - section_count * SECTION_SIZE
+
+    if unused_space:
+        print(f"Unused disk space: {unused_space} bytes")
+    print(f"Section count: {section_count}")
     
-    header_section.write_uint32(len(disk) / SECTION_SIZE)
+    header_section.write_uint32(section_count)
     header_section.write_uint32(SECTION_DATA_SIZE)
 
-    header_section.write_uint32(0x0002)
+    header_section.write_uint32(0x0001)
 
     write_section(disk, 0x0000, header_section)
+
+    for i in range(1, section_count):
+        free_s = DiskSection.new()
+        if i < section_count - 1:
+            free_s.write_uint32(i + 1)
+
+        write_section(disk, i, free_s)
+
+def get_disk_data(disk: list[int]):
+    header_section = get_section(disk, 0x0000)
 
 if __name__ == "__main__":
     with open("disk.bin", "r+b") as f:
         disk: list[int] = list(f.read())
         
         format_disk(disk)
-
-        print(disk[:SECTION_SIZE])
 
         f.seek(0x0000)
         f.write(bytes(disk))
