@@ -138,11 +138,18 @@ def format_disk(disk: list[int]):
     header_section.write_uint32(section_count)
     header_section.write_uint32(SECTION_DATA_SIZE)
 
-    header_section.write_uint32(0x0001)
+    header_section.write_uint32(0x0002)
 
     write_section(disk, 0x0000, header_section)
 
-    for i in range(1, section_count):
+    file_table = DiskSection.new()
+
+    file_table.write_data(bytes("A.TXT".ljust(28, "\0"), "utf-8"))
+    file_table.write_uint32(0x0001)
+    
+    write_section(disk, 0x0001, file_table)
+
+    for i in range(2, section_count):
         free_s = DiskSection.new()
         if i < section_count - 1:
             free_s.write_uint32(i + 1)
@@ -163,6 +170,34 @@ def get_disk_data(disk: list[int]):
 
     print(header)
 
+    files = []
+    ft_data = get_file_from(disk, header.file_table_pointer)
+    print(ft_data)
+    for fes in range(0, len(ft_data), 32):
+        data = ft_data[fes:fes+32]
+        fn = data[:28]
+        pointer = data[28:]
+
+        if len(data) != 32:
+            continue
+        entry = FileEntry(
+            make_int_from_bytes(pointer),
+            bytes(fn).decode("utf-8").replace("\0", "")
+        )
+        if entry.start_pointer != 0:
+            print(entry)
+            files.append(entry)
+    file_table = FileTable(files)
+
+    return header, file_table
+
+def cmd_ls(disk):
+    header, file_table = get_disk_data(disk)
+    print((' ' + header.disk_name + ' ').center(48, "="))
+
+    for f in file_table.entries:
+        print(f.name.ljust(28), f.start_pointer)
+
 if __name__ == "__main__":
     from sys import argv
     if len(argv) < 3:
@@ -175,8 +210,10 @@ if __name__ == "__main__":
         match argv[2]:
             case "format":
                 format_disk(disk)
-            case "get":
-                data = get_disk_data(disk)
+            case "check":
+                get_disk_data(disk)
+            case "ls":
+                cmd_ls(disk)
 
         f.seek(0x0000)
         f.write(bytes(disk))
