@@ -189,6 +189,15 @@ def get_disk_data(disk: list[int]):
             files.append(entry)
     file_table = FileTable(files)
 
+    free_section_pointer = header.first_free_section
+    free_sections = []
+    while free_section_pointer != 0:
+        section = get_section(disk, free_section_pointer)
+        free_sections.append(free_section_pointer)
+        free_section_pointer = make_int_from_bytes(section.read_bytes(4))
+
+    print(f"{len(free_sections)} free sections.")
+
     return header, file_table
 
 def cmd_ls(disk):
@@ -196,7 +205,7 @@ def cmd_ls(disk):
     print((' ' + header.disk_name + ' ').center(48, "="))
 
     for f in file_table.entries:
-        print(f.name.ljust(28), f.start_pointer)
+        print(f.name.ljust(28), "|", f.start_pointer)
 
 if __name__ == "__main__":
     from sys import argv
