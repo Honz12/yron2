@@ -10,7 +10,7 @@ DOCS
 
 - ROOT Directory
     - Entry
-        - 16 bytes file name
+        - 24 bytes file name
         - 4 bytes start section
         - 4 bytes size
 """
@@ -74,6 +74,12 @@ class Disk:
             (self.get_byte() << 16) |
             (self.get_byte() << 32)
         )
+
+    def get_str(self, size: int):
+        chars = ""
+        for _ in range(size):
+            chars += chr(self.get_byte())
+        return chars
 
 def format_byte_size(i):
     endfixes = ["B", "KiB", "MiB", "GiB"]
@@ -146,7 +152,7 @@ def write_raw_file(disk: Disk, header: FsHeader, data: list[int]):
         disk.write_data(data[:SECTION_SIZE])
         data = data[SECTION_SIZE:]
     
-    disk.seek(SECTION_SIZE + pointer * 4)
+    disk.seek(SECTION_SIZE + section * 4)
     disk.write_u32(0) # EOF
     
     header.first_free_section = free[0]
@@ -154,9 +160,21 @@ def write_raw_file(disk: Disk, header: FsHeader, data: list[int]):
 
     return start
 
+def read_raw_file(disk: Disk, header: FsHeader, start_section: int):
+    occupied = find_file_occupying(start_section)
+
+    data = []
+
+    for i in occupied:
+        data += disk.data[
+            i * SECTION_SIZE:
+            (i + 1) * SECTION_SIZE
+        ]
+
+    return data
+
 def free_raw_file(disk: Disk, header: FsHeader, start_section: int):
     occupied = find_file_occupying(start_section)
-    header.fi
 
 def format_disk(disk: Disk, disk_name: str):
     print(f"FORMATING DISK {repr(disk_name)}")
@@ -196,8 +214,15 @@ def format_disk(disk: Disk, disk_name: str):
     
     # ROOT DIR
 
-    header.root_dir_file_section = write_raw_file(disk, header, [0 for _ in range(SECTION_SIZE)])
-    
+    header.root_dir_file_section = write_raw_file(
+        disk, header, [0]
+    )
+
+    disk.seek(header.root_dir_file_section * SECTION_SIZE)
+
+    disk.write_data(".ROOT", 24)
+    disk.write_u32(header.root_dir_file_section)
+    disk.write_u32(32)
 
     # rewrite header
 
@@ -223,6 +248,12 @@ def dump_section(disk: Disk, section: int):
                 print(end="\x1b[31m.\x1b[0m")
         print()
 
+def analyze_disk(disk: Disk):
+    
+
+def read_file(disk: Disk, name: str):
+    ...
+
 def run_command(disk: Disk, cmd: list[str]):
     if len(cmd) == 1:
         if cmd[0] == "exit":
@@ -232,6 +263,8 @@ def run_command(disk: Disk, cmd: list[str]):
             format_disk(disk, cmd[1])
         if cmd[0] == "dump":
             dump_section(disk, int(cmd[1], 0))
+        if cmd[0] == "read":
+            read_file(disk, cmd[1])
 
 def main():
     disk = Disk.new(1024 ** 2 * 2)
