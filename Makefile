@@ -36,3 +36,7 @@ clean:
 
 rm_cb:
 	rm cbuild/ -fr
+
+test_fs:
+	$(PYTHON) disk_maker.py disk.bin new 4194304
+	$(PYTHON) fs_maker.py disk.bin format "FungOS"
