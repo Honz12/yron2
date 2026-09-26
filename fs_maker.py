@@ -23,7 +23,7 @@ Header Section (C struct):
 
 File Table:
     - Contains all file names mapped to file section pointers
-    - 28 bytes file name, 4 bytes file section pointer
+    - 24 bytes file name, 4 bytes file section pointer, 4 bytes file size in bytes
     - It itself is a file (just not included in the file table)
 """
 
@@ -40,6 +40,7 @@ class HeaderSection:
 @dataclass
 class FileEntry:
     start_pointer: int
+    file_size: int
     name: str
 
 class FreeSection:
@@ -55,8 +56,8 @@ class DiskData:
     header: HeaderSection
     file_table: FileTable
 
-SECTION_DATA_SIZE = 252
 SECTION_META_SIZE = 4
+SECTION_DATA_SIZE = 256 - SECTION_META_SIZE
 SECTION_SIZE = SECTION_DATA_SIZE + SECTION_META_SIZE
 
 @dataclass
@@ -111,8 +112,6 @@ def write_section(disk: list[int], idx: int, section: DiskSection):
 def get_file_from(disk: list[int], section: int):
     data = list()
     while True:
-        print(f"<CONTINUES DATA READ {section}>")
-
         s = get_section(disk, section)
         data += s.data
         meta = make_int_from_bytes(s.meta)
@@ -123,7 +122,7 @@ def get_file_from(disk: list[int], section: int):
         section = meta
 
 def format_disk(disk: list[int]):
-    header_section = get_section(disk, 0x0000)
+    header_section = DiskSection.new()
 
     header_section.write_uint32(0x0001)
     header_section.write_data(bytes("FungOS DISK".ljust(32, '\0'), "utf-8"))
@@ -144,8 +143,9 @@ def format_disk(disk: list[int]):
 
     file_table = DiskSection.new()
 
-    file_table.write_data(bytes("A.TXT".ljust(28, "\0"), "utf-8"))
+    file_table.write_data(bytes(".FILE_TABLE".ljust(24, "\0"), "utf-8"))
     file_table.write_uint32(0x0001)
+    file_table.write_uint32(SECTION_DATA_SIZE)
     
     write_section(disk, 0x0001, file_table)
 
@@ -157,55 +157,237 @@ def format_disk(disk: list[int]):
         write_section(disk, i, free_s)
 
 def get_disk_data(disk: list[int]):
-    header_section = get_section(disk, 0x0000)
-    header = HeaderSection(
-        make_int_from_bytes(header_section.read_bytes(4)),
-        
-        bytes(header_section.read_bytes(32)).decode("utf-8").replace("\0", ""),
-        make_int_from_bytes(header_section.read_bytes(4)),
-        make_int_from_bytes(header_section.read_bytes(4)),
-        
-        make_int_from_bytes(header_section.read_bytes(4)),
-    )
-
+    try:
+        header_section = get_section(disk, 0x0000)
+        header = HeaderSection(
+            make_int_from_bytes(header_section.read_bytes(4)),
+            
+            bytes(header_section.read_bytes(32)).decode("utf-8").replace("\0", ""),
+            make_int_from_bytes(header_section.read_bytes(4)),
+            make_int_from_bytes(header_section.read_bytes(4)),
+            
+            make_int_from_bytes(header_section.read_bytes(4)),
+        )
+    except:
+        print("INVALID FS HEADER")
+        exit(1)
     print(header)
 
-    files = []
-    ft_data = get_file_from(disk, header.file_table_pointer)
-    print(ft_data)
-    for fes in range(0, len(ft_data), 32):
-        data = ft_data[fes:fes+32]
-        fn = data[:28]
-        pointer = data[28:]
+    try:
+        files = []
+        ft_data = get_file_from(disk, header.file_table_pointer)
+        for fes in range(0, len(ft_data), 32):
+            data = ft_data[fes:fes+32]
+            fn = data[:24]
+            pointer = data[24:28]
+            size = data[28:]
 
-        if len(data) != 32:
-            continue
-        entry = FileEntry(
-            make_int_from_bytes(pointer),
-            bytes(fn).decode("utf-8").replace("\0", "")
-        )
-        if entry.start_pointer != 0:
-            print(entry)
-            files.append(entry)
-    file_table = FileTable(files)
+            if len(data) != 32:
+                continue
+            entry = FileEntry(
+                make_int_from_bytes(pointer),
+                make_int_from_bytes(size),
+                bytes(fn).decode("utf-8").replace("\0", "")
+            )
+            if entry.start_pointer != 0:
+                print(entry)
+                files.append(entry)
+        file_table = FileTable(files)
+    except:
+        print("INVALID FILE TABLE")
+        exit(1)
 
-    free_section_pointer = header.first_free_section
-    free_sections = []
-    while free_section_pointer != 0:
-        section = get_section(disk, free_section_pointer)
-        free_sections.append(free_section_pointer)
-        free_section_pointer = make_int_from_bytes(section.read_bytes(4))
+    try:
+        free_section_pointer = header.first_free_section
+        free_sections = []
+        while free_section_pointer != 0:
+            section = get_section(disk, free_section_pointer)
+            free_sections.append(free_section_pointer)
+            free_section_pointer = make_int_from_bytes(section.read_bytes(4))
 
-    print(f"{len(free_sections)} free sections.")
+        print(f"{len(free_sections)} free sections.")
+    except:
+        print("FAILED TO COLLECT FREE SECTIONS")
+        exit(1)
 
-    return header, file_table
+    return header, file_table, free_sections
 
-def cmd_ls(disk):
-    header, file_table = get_disk_data(disk)
-    print((' ' + header.disk_name + ' ').center(48, "="))
+def format_byte_count(count: int):
+    if count < 1024:
+        return f"{count} B"
+    elif count < 1024 * 1024:
+        return f"{round(count / 1024, 2)} KiB"
+    elif count < 1024 * 1024 * 1024:
+        return f"{round(count / (1024 * 1024), 2)} MiB"
+    else:
+        return f"{round(count / (1024 * 1024 * 1024), 2)} GiB"
+
+def get_file_occupying(disk: list[int], section: int):
+    occupying = list()
+    while True:
+        s = get_section(disk, section)
+        occupying.append(section)
+        meta = make_int_from_bytes(s.meta)
+
+        if meta == 0:
+            return occupying
+        
+        section = meta
+
+def cmd_ls(disk, list_all: bool):
+    TABLE_WIDTH = 48 + 3
+    FILE_NAME_SIZE = 24
+
+    header, file_table, free_sections = get_disk_data(disk)
+    print("|", (' ' + header.disk_name + ' ').center(TABLE_WIDTH, "="), "|")
+    print("|", "Available space:".ljust(TABLE_WIDTH), "|")
+    print("|", f"Free:   {len(free_sections)} ({format_byte_count(len(free_sections) * header.disk_section_data_size)})".ljust(TABLE_WIDTH), "|")
+    print("|", f"Out of: {header.disk_section_count} ({format_byte_count(header.disk_section_count * header.disk_section_data_size)})".ljust(TABLE_WIDTH), "|")
+    print("|", '-' * TABLE_WIDTH, "|")
+
+    print("|", "FILE NAME".center(FILE_NAME_SIZE), "|", "SIZE".center(TABLE_WIDTH - 3 - FILE_NAME_SIZE), "|")
 
     for f in file_table.entries:
-        print(f.name.ljust(28), "|", f.start_pointer)
+        if not f.name.startswith(".") or list_all:
+            print("|", f.name.ljust(FILE_NAME_SIZE), "|", str(format_byte_count(f.file_size)).ljust(TABLE_WIDTH - 3 - FILE_NAME_SIZE), "|")
+
+def repair_structure_sections(disk, header: HeaderSection, file_table: FileTable, free_sections: list[int]):
+    free_sections += get_file_occupying(disk, header.file_table_pointer)
+    free_sections.sort()
+
+    # repair file table
+
+    file_table_data = []
+
+    for file in file_table.entries:
+        print(f"Repairing file {file.name} in file table")
+        file_table_data += list(bytes(file.name + "\0" * (24 - len(file.name)), "utf-8"))
+        file_table_data += [
+            file.start_pointer % 256,
+            (file.start_pointer >> 8) % 256,
+            (file.start_pointer >> 16) % 256,
+            (file.start_pointer >> 24) % 256,
+        ]
+        file_table_data += [
+            file.file_size % 256,
+            (file.file_size >> 8) % 256,
+            (file.file_size >> 16) % 256,
+            (file.file_size >> 24) % 256,
+        ]
+
+    writing = free_sections[0]
+    loop_should_run = True
+    while loop_should_run:
+        print(f"Allocated section {free_sections[0]} to file table during repair")
+        section = DiskSection.new()
+        section.write_data(file_table_data[:SECTION_DATA_SIZE])
+        section.seeking = SECTION_DATA_SIZE
+        write_section(disk, free_sections[0], section)
+        free_sections.pop(0)
+        file_table_data = file_table_data[SECTION_DATA_SIZE:]
+        loop_should_run = len(file_table_data) > 0
+        if loop_should_run:
+            section.write_uint32(free_sections[0])
+    
+    print(f"Succesfuly repaired file table")
+
+    # repair free sections
+
+    for i, s in enumerate(free_sections):
+        section = DiskSection.new()
+        if i != len(free_sections) - 1:
+            section.write_uint32(free_sections[i + 1])
+        write_section(disk, s, section)
+
+    header.first_free_section = free_sections[0]
+
+    # Write process
+
+    header_section = DiskSection.new()
+
+    header_section.write_uint32(header.file_table_pointer)
+    header_section.write_data(bytes(header.disk_name + "\0" * (32 - len(header.disk_name)), "utf-8"))
+    header_section.write_uint32(header.disk_section_count)
+    header_section.write_uint32(header.disk_section_data_size)
+    header_section.write_uint32(header.first_free_section)
+
+    write_section(disk, 0x0000, header_section)
+
+def write_file(disk: list[int], name: str, data: list[int]):
+    header, file_table, free_sections = get_disk_data(disk)
+
+    file: FileEntry = None
+
+    for file_entry in file_table.entries:
+        if file_entry.name == name:
+            print(f"FOUND FILE {name}")
+            file = file_entry
+            break
+    else:
+        print(f"FILE {name} NOT FOUND")
+        return
+    
+    occupying = get_file_occupying(disk, file.start_pointer)
+    print("File is occupying sections: ", occupying)
+    free_sections = occupying + free_sections
+    free_space = len(free_sections) * SECTION_DATA_SIZE
+    needed_space = len(data)
+    if free_space < needed_space:
+        print(f"NOT ENOUGH SPACE, ONLY HAS {format_byte_count(free_space)} FREE, BUT NEEDS {format_byte_count(needed_space)}")
+
+    file.start_pointer = free_sections[0]
+    loop_should_run = True
+    while loop_should_run:
+        print(f"Allocated section {free_sections[0]} to {file.name}")
+        section = DiskSection.new()
+        section.write_data(data[:SECTION_DATA_SIZE])
+        section.seeking = SECTION_DATA_SIZE
+        write_section(disk, free_sections[0], section)
+        free_sections.pop(0)
+        data = data[SECTION_DATA_SIZE:]
+        loop_should_run = len(data) > 0
+        if loop_should_run:
+            section.write_uint32(free_sections[0])
+
+    file.file_size = needed_space
+    
+    print(f"Succesfuly written {format_byte_count(needed_space)} to {name}")
+
+    repair_structure_sections(disk, header, file_table, free_sections)
+
+def read_file(disk: list[int], name: str):
+    header, file_table, free_sections = get_disk_data(disk)
+
+    file: FileEntry = None
+
+    for file_entry in file_table.entries:
+        if file_entry.name == name:
+            print(f"FOUND FILE {name}")
+            file = file_entry
+            break
+    else:
+        print(f"FILE {name} NOT FOUND")
+        return
+    
+    file_contents = get_file_from(disk, file.start_pointer)[:file.file_size]
+    
+    print(f"Succesfuly read {format_byte_count(file.file_size)} from {name}")
+
+    return bytes(file_contents)
+
+def new_file(disk: list[int], name: str):
+    header, file_table, free_sections = get_disk_data(disk)
+
+    for file_entry in file_table.entries:
+        if file_entry.name == name:
+            print(f"FILE {name} ALREADY EXISTS")
+            return
+    
+    file = FileEntry(free_sections.pop(0), 0, name)
+
+    file_table.entries.append(file)
+
+    repair_structure_sections(disk, header, file_table, free_sections)
 
 if __name__ == "__main__":
     from sys import argv
@@ -222,7 +404,26 @@ if __name__ == "__main__":
             case "check":
                 get_disk_data(disk)
             case "ls":
-                cmd_ls(disk)
+                cmd_ls(disk, False)
+            case "la":
+                cmd_ls(disk, True)
+            case "write":
+                if len(argv) != 5:
+                    print("INVALID ARGS FOR write COMMAND, EXPECTED `python3 fs_maker.py write <file_name> <source_file_on_host>")
+                    exit(1)
+                with open(argv[4], "rb") as host_file:
+                    write_file(disk, argv[3], list(host_file.read()))
+            case "get":
+                if len(argv) != 5:
+                    print("INVALID ARGS FOR read COMMAND, EXPECTED `python3 fs_maker.py write <file_name> <store_file_on_host>")
+                    exit(1)
+                with open(argv[4], "wb") as host_file:
+                    host_file.write(read_file(disk, argv[3]))
+            case "new":
+                if len(argv) != 4:
+                    print("INVALID ARGS FOR new COMMAND, EXPECTED `python3 fs_maker.py new <file_name>")
+                    exit(1)
+                new_file(disk, argv[3])
 
         f.seek(0x0000)
         f.write(bytes(disk))
