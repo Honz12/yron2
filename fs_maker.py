@@ -18,6 +18,7 @@ DOCS
 
 TEXT_ENCODING = "utf-8"
 SECTION_SIZE = 512
+VERBOSE = False
 
 import shlex
 from dataclasses import dataclass
@@ -308,24 +309,24 @@ def dump_section(disk: Disk, section: int):
         print()
 
 def analyze_disk(disk: Disk):
-    print("\x1b[90mAnalyzing disk")
+    if VERBOSE: print("\x1b[90mAnalyzing disk")
     disk.seek_section(0)
     disk_name = disk.get_str(16).strip("\0")
-    print(f"|-- Name: {repr(disk_name)}")
+    if VERBOSE: print(f"|-- Name: {repr(disk_name)}")
     
     disk_root_directory_pointer = disk.get_u32()
-    print(f"|-- .ROOT file: {disk_root_directory_pointer}")
+    if VERBOSE: print(f"|-- .ROOT file: {disk_root_directory_pointer}")
     disk_size = disk.get_u32()
-    print(f"|-- Disk size: {disk_size} ({format_byte_size(disk_size)})")
-    print(f"|   `-- {"Matches" if disk.size == disk_size else f"Real: {disk.size}"}")
+    if VERBOSE: print(f"|-- Disk size: {disk_size} ({format_byte_size(disk_size)})")
+    if VERBOSE: print(f"|   `-- {"Matches" if disk.size == disk_size else f"Real: {disk.size}"}")
 
     disk_first_free_section = disk.get_u32()
-    print(f"|-- First free section: {disk_first_free_section}")
+    if VERBOSE: print(f"|-- First free section: {disk_first_free_section}")
 
     header = FsHeader(disk_name, disk_root_directory_pointer, disk_size, disk_first_free_section)
 
     disk_free_sections = find_free_sections(disk, header)
-    print(f"|-- Free section count: {len(disk_free_sections)}\x1b[0m")
+    if VERBOSE: print(f"|-- Free section count: {len(disk_free_sections)}\x1b[0m")
 
     dot_root_file = read_raw_file(disk, header.root_dir_file_section)
 
@@ -491,9 +492,12 @@ def run_command(disk: Disk, cmd: list[str]):
             header, _, _ = analyze_disk(disk)
 
             print("Disk name:", repr(header.disk_name))
-            print("Disk size:", repr(header.disk_size))
+            print("Disk size:", repr(header.disk_size), f"({format_byte_size(header.disk_size)})")
             print("Disk .ROOT file section:", repr(header.root_dir_file_section))
             print("Disk first free section:", repr(header.first_free_section))
+        if cmd[0] == "free":
+            _, _, free_sections = analyze_disk(disk)
+            print(f"Free sections: {len(free_sections)} ({format_byte_size(len(free_sections) * SECTION_SIZE)})")
     if len(cmd) == 2:
         if cmd[0] == "format":
             format_disk(disk, cmd[1])
