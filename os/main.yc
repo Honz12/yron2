@@ -1,5 +1,6 @@
 u32 disk_size;
 u32 free_space_start;
+u32 disk_name;
 
 func copy_disk(u32 start_in_disk, u32 num_bytes, u32 destination_in_ram) {
     if ((start_in_disk > disk_size) | (num_bytes > disk_size - start_in_disk)) {
@@ -15,12 +16,15 @@ func copy_disk(u32 start_in_disk, u32 num_bytes, u32 destination_in_ram) {
 }
 
 func putb(u8 byte) {
-
+    puth(byte / 16);
+    puth(byte % 16);
 }
 
 func main() {
     free_space_start = 0xFFFF;
     disk_size = 64 * 1024;
+
+    disk_name = alc(17);
     
     puts("STARTING READ FROM DISK ...\n");
 
@@ -38,4 +42,10 @@ func main() {
     puth(12); puth(13); puth(14); puth(15);
 
     putc('\n');
+
+    copy_mem(free_space_start - __get_MS(), disk_name, 16);
+
+    puts("COPY OF NAME COMPLETED\n");
+
+    puts(disk_name);
 }
