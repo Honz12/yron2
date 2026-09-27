@@ -26,7 +26,6 @@ ljmp 0x10 0x11
 ; CODE
 
 halt:
-    d8 0xFF
     jmp halt
 
 ; INTERRUPT HANDLERS
@@ -42,39 +41,60 @@ ram_inv_addr_error_handler:
     jmp kernel_panic_handler
 
 ; ----------------------------------------------------------------------------------------
-putc_int:
+syscall_int:
+    push32 0x0e
+
+    ldi8 0x0e 0 ; PUTC
+    eq 0x0e 0x0f 0x0e
+    jnz .putc 0x0e
+    
+    ldi8 0x0e 1 ; PUTS
+    eq 0x0e 0x0f 0x0e
+    jnz .puts 0x0e
+    
+    ldi8 0x0e 2 ; PUTU
+    eq 0x0e 0x0f 0x0e
+    jnz .putu 0x0e
+    
+    ldi8 0x0e 3 ; GETC
+    eq 0x0e 0x0f 0x0e
+    jnz .putc 0x0e
+    
+    ldi8 0x0e 4 ; DISK_READ
+    eq 0x0e 0x0f 0x0e
+    jnz .disk_read 0x0e
+    
+    ldi8 0x0e 0 ; DISK_WRITE
+    eq 0x0e 0x0f 0x0e
+    jnz .disk_write 0x0e
+    
+    ldi8 0x0e 0 ; DISK_SEEK
+    eq 0x0e 0x0f 0x0e
+    jnz .disk_seek 0x0e
+.end:
+    pop32 0x0e
+    iret
+.putc:
     call putc
-    iret
-
-; ----------------------------------------------------------------------------------------
-puts_int:
+    jmp .end
+.puts:
     call puts
-    iret
-
-; ----------------------------------------------------------------------------------------
-putu_int:
+    jmp .end
+.putu:
     call putu
-    iret
-
-; ----------------------------------------------------------------------------------------
-getc_int:
+    jmp .end
+.getc:
 	call getc
-	iret
-
-; ----------------------------------------------------------------------------------------
-disk_read_int:
+    jmp .end
+.disk_read:
     call disk_read
-    iret
-
-; ----------------------------------------------------------------------------------------
-disk_write_int:
+    jmp .end
+.disk_write:
     call disk_write
-    iret
-
-; ----------------------------------------------------------------------------------------
-disk_seek_int:
+    jmp .end
+.disk_seek:
     call disk_seek
-    iret
+    jmp .end
 
 ; KERNEL FUNCTIONS
 
@@ -85,8 +105,6 @@ disk_seek_int:
 ;   0x10 - error message string pointer
 ;
 kernel_panic_handler:
-    d8 0xFF
-
     push32 0x10
 
     ldi32 0x10 ERROR_ANSI
@@ -132,8 +150,6 @@ kernel_panic_handler:
 ;   0x10 - error message string pointer
 ;
 kernel_error_handler:
-    d8 0xFF
-
     push32 0x10
 
     ldi32 0x10 ERROR_ANSI
@@ -339,7 +355,6 @@ disk_read:
     pop32 0x08
     pop32 0x11
     pop32 0x10
-    d8 0xFF
     ret
 
 ; ----------------------------------------------------------------------------------------
@@ -379,12 +394,6 @@ d32 ram_inv_addr_error_handler                  ; 0x01 - RAM Invalid Address Err
 org 0x0440                                      ; Non error interrupts
 
 d32 halt                ; 0x10
-d32 putc_int            ; 0x11
-d32 puts_int            ; 0x12
-d32 putu_int            ; 0x13
-d32 getc_int            ; 0x14
-d32 disk_read_int       ; 0x15
-d32 disk_write_int      ; 0x16
-d32 disk_seek_int       ; 0x17
+d32 syscall_int         ; 0x11
 
 org 0x0800
