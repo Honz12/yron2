@@ -40,4 +40,3 @@ rm_cb:
 test_fs:
 	$(PYTHON) disk_maker.py disk.bin new 4194304
 	$(PYTHON) fs_maker.py disk.bin format "FungOS"
-	$(PYTHON) fs_maker.py disk.bin del "Makefile"

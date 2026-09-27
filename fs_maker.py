@@ -351,11 +351,14 @@ def read_file(disk: Disk, name: str):
     for f in root_dir.files:
         if f.file_name == name:
             data = read_raw_file(disk, f.start_section)
-            text = bytes(data[:f.size]).decode(TEXT_ENCODING)
             hex_dump = False
-            for i in text:
-                if not i.isprintable() and i not in "\n\t\r":
-                    hex_dump = True
+            try:
+                text = bytes(data[:f.size]).decode(TEXT_ENCODING)
+                for i in text:
+                    if not i.isprintable() and i not in "\n\t\r":
+                        hex_dump = True
+            except:
+                hex_dump = True
             if hex_dump:
                 print("Hex dump:")
                 dumping = data[:f.size]
