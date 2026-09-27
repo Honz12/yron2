@@ -36,7 +36,7 @@ TT_AND = "and"
 TT_NAND = "nand"
 TT_OR = "or"
 TT_NOR = "nor"
-TT_XOR = "and"
+TT_XOR = "xor"
 
 TT_LPAREN = "lparen"
 TT_RPAREN = "rparen"

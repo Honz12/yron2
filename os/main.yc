@@ -1,51 +1,81 @@
-u32 disk_size;
-u32 free_space_start;
 u32 disk_name;
-
-func copy_disk(u32 start_in_disk, u32 num_bytes, u32 destination_in_ram) {
-    if ((start_in_disk > disk_size) | (num_bytes > disk_size - start_in_disk)) {
-        puts("INVALID READ\n");
-        return 1;
-    }
-
-    disk_seek(start_in_disk);
-
-    disk_read(num_bytes, destination_in_ram);
-
-    return 0;
-}
+u32 disk_dot_root_pointer;
+u32 disk_size;
+u32 disk_first_free_section;
 
 func putb(u8 byte) {
     puth(byte / 16);
     puth(byte % 16);
 }
 
+func read_disk_section(u32 section, u32 destination_in_ram) {
+    disk_seek(section * 256);
+    disk_read(256, destination_in_ram);
+
+    puts("Read section ");
+    putu(section);
+    puts(" from disk.\n");
+}
+
+func analyze_disk() {
+    u32 destination = alc(256);
+    read_disk_section(0, destination + __get_MS());
+
+    copy_mem(destination, disk_name, 16);
+    destination = destination + 16;
+    copy_mem(destination, loc(disk_dot_root_pointer), 4);
+    destination = destination + 4;
+    copy_mem(destination, loc(disk_size), 4);
+    destination = destination + 4;
+    copy_mem(destination, loc(disk_first_free_section), 4);
+}
+
+func dumph32(u32 v) {
+    putb(v / 16777216);
+    putb(v / 65536 % 256);
+    putb(v / 256 % 256);
+    putb(v % 256);
+}
+
+func dump_mem(u32 pointer, u32 num_bytes) {
+    dumph32(pointer);
+    puts(": ");
+    while (num_bytes > 0) {
+        putb(res8(pointer));
+        putc(' ');
+        num_bytes = num_bytes - 1;
+        pointer = pointer + 1;
+        if (num_bytes % 16 == 0) {
+            putc('\n');
+            dumph32(pointer);
+            puts(": ");
+        }
+    }
+    putc('\n');
+}
+
 func main() {
-    free_space_start = 0xFFFF;
-    disk_size = 64 * 1024;
-
     disk_name = alc(17);
-    
-    puts("STARTING READ FROM DISK ...\n");
 
-    breakpoint;
+    analyze_disk();
 
-    copy_disk(0, disk_size, free_space_start);
-    
-   	breakpoint;
+    puts("Disk name: ");
+    puts(disk_name);
+    putc('\n');
 
-    puts("READ FROM DISK COMPLETED\n");
+    puts("Disk size: ");
+    putu(disk_size);
+    puts(" bytes\n");
 
-    puth(0); puth(1); puth(2); puth(3);
-    puth(4); puth(5); puth(6); puth(7);
-    puth(8); puth(9); puth(10); puth(11);
-    puth(12); puth(13); puth(14); puth(15);
+    puts(".ROOT start section: ");
+    putu(disk_dot_root_pointer);
+    putc('\n');
+
+    puts("First free section: ");
+    putu(disk_first_free_section);
+    putc('\n');
 
     putc('\n');
 
-    copy_mem(free_space_start - __get_MS(), disk_name, 16);
-
-    puts("COPY OF NAME COMPLETED\n");
-
-    puts(disk_name);
+    dump_mem(disk_name, 32);
 }
