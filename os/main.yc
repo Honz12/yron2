@@ -14,6 +14,10 @@ func copy_disk(u32 start_in_disk, u32 num_bytes, u32 destination_in_ram) {
     return 0;
 }
 
+func putb(u8 byte) {
+
+}
+
 func main() {
     free_space_start = 0xFFFF;
     disk_size = 64 * 1024;
@@ -27,4 +31,11 @@ func main() {
    	breakpoint;
 
     puts("READ FROM DISK COMPLETED\n");
+
+    puth(0); puth(1); puth(2); puth(3);
+    puth(4); puth(5); puth(6); puth(7);
+    puth(8); puth(9); puth(10); puth(11);
+    puth(12); puth(13); puth(14); puth(15);
+
+    putc('\n');
 }
