@@ -7,6 +7,7 @@ DOCS
     - 16 bytes disk name
     - 4 bytes root directory file pointer
     - 4 bytes size of disk
+    - 4 bytes first free section
 
 - ROOT Directory
     - Entry
@@ -20,6 +21,14 @@ SECTION_SIZE = 512
 
 import shlex
 from dataclasses import dataclass
+
+def get_u32_from_int(u: list[int]):
+    return (
+        u[0] |
+        (u[1] << 8) |
+        (u[2] << 16) |
+        (u[3] << 24)
+    )
 
 class Disk:
     def __init__(self, data: list[int]):
@@ -72,7 +81,7 @@ class Disk:
             self.get_byte() |
             (self.get_byte() << 8) |
             (self.get_byte() << 16) |
-            (self.get_byte() << 32)
+            (self.get_byte() << 24)
         )
 
     def get_str(self, size: int):
@@ -118,6 +127,41 @@ class FsHeader:
             ]
         )
 
+@dataclass
+class FsFileEntry:
+    file_name: str
+    start_section: int
+    size: int
+
+    def get_bytes(self):
+        return bytes(
+            list(
+                bytes(self.file_name.ljust(24, "\0"), TEXT_ENCODING)
+            ) + [
+                self.start_section % 256,
+                (self.start_section >> 8) % 256,
+                (self.start_section >> 16) % 256,
+                (self.start_section >> 24) % 256,
+            ] + [
+                self.size % 256,
+                (self.size >> 8) % 256,
+                (self.size >> 16) % 256,
+                (self.size >> 24) % 256,
+            ]
+        )
+
+@dataclass
+class FsDirectory:
+    files: list[FsFileEntry]
+
+    def get_bytes(self):
+        data = []
+
+        for f in self.files:
+            data += list(f.get_bytes())
+        
+        return bytes(data)
+
 def find_free_sections(disk: Disk, header: FsHeader):
     pointer = header.first_free_section
     free = []
@@ -137,6 +181,8 @@ def find_file_occupying(disk: Disk, start_section: int):
     return occupied
 
 def write_raw_file(disk: Disk, header: FsHeader, data: list[int]):
+    current_seek = disk.seeking
+
     free = find_free_sections(disk, header)
 
     start = None
@@ -145,12 +191,14 @@ def write_raw_file(disk: Disk, header: FsHeader, data: list[int]):
     print("|\x1b[90m-- Writing raw bytes as file\x1b[0m")
     print(f"|\x1b[90m   |-- Size: {data_size}\x1b[0m")
 
-    while len(data) > 0:
+    loop_run = True
+    while loop_run:
         section = free.pop(0)
         if not start: start = section
         disk.seek_section(section)
         disk.write_data(data[:SECTION_SIZE])
         data = data[SECTION_SIZE:]
+        loop_run = len(data) > 0
     
     disk.seek(SECTION_SIZE + section * 4)
     disk.write_u32(0) # EOF
@@ -158,10 +206,12 @@ def write_raw_file(disk: Disk, header: FsHeader, data: list[int]):
     header.first_free_section = free[0]
     print(f"|\x1b[90m   `-- Start: {start}\x1b[0m")
 
+    disk.seek(current_seek)
+
     return start
 
-def read_raw_file(disk: Disk, header: FsHeader, start_section: int):
-    occupied = find_file_occupying(start_section)
+def read_raw_file(disk: Disk, start_section: int):
+    occupied = find_file_occupying(disk, start_section)
 
     data = []
 
@@ -173,8 +223,15 @@ def read_raw_file(disk: Disk, header: FsHeader, start_section: int):
 
     return data
 
-def free_raw_file(disk: Disk, header: FsHeader, start_section: int):
-    occupied = find_file_occupying(start_section)
+def delete_raw_file(disk: Disk, header: FsHeader, start_section: int):
+    occupied = find_file_occupying(disk, start_section)
+
+    disk.seek(SECTION_SIZE + occupied[-1] * 4)
+    disk.write_u32(header.first_free_section)
+    header.first_free_section = occupied[0]
+
+    disk.seek_section(0)
+    disk.write_data(header.get_bytes())
 
 def format_disk(disk: Disk, disk_name: str):
     print(f"FORMATING DISK {repr(disk_name)}")
@@ -223,6 +280,8 @@ def format_disk(disk: Disk, disk_name: str):
     disk.write_data(".ROOT", 24)
     disk.write_u32(header.root_dir_file_section)
     disk.write_u32(32)
+    for _ in range(SECTION_SIZE - 32):
+        disk.write_byte(0)
 
     # rewrite header
 
@@ -249,25 +308,215 @@ def dump_section(disk: Disk, section: int):
         print()
 
 def analyze_disk(disk: Disk):
+    print("\x1b[90mAnalyzing disk")
+    disk.seek_section(0)
+    disk_name = disk.get_str(16).strip("\0")
+    print(f"|-- Name: {repr(disk_name)}")
     
+    disk_root_directory_pointer = disk.get_u32()
+    print(f"|-- .ROOT file: {disk_root_directory_pointer}")
+    disk_size = disk.get_u32()
+    print(f"|-- Disk size: {disk_size} ({format_byte_size(disk_size)})")
+    print(f"|   `-- {"Matches" if disk.size == disk_size else f"Real: {disk.size}"}")
+
+    disk_first_free_section = disk.get_u32()
+    print(f"|-- First free section: {disk_first_free_section}")
+
+    header = FsHeader(disk_name, disk_root_directory_pointer, disk_size, disk_first_free_section)
+
+    disk_free_sections = find_free_sections(disk, header)
+    print(f"|-- Free section count: {len(disk_free_sections)}\x1b[0m")
+
+    dot_root_file = read_raw_file(disk, header.root_dir_file_section)
+
+    with open("test_DOT_ROOT", "wb") as f:
+        f.write(bytes(dot_root_file))
+
+    root_dir = FsDirectory([])
+    
+    for file_entry_start in range(0, len(dot_root_file), 32):
+        fname = bytes(dot_root_file[file_entry_start:file_entry_start+24]).decode(TEXT_ENCODING).strip("\0")
+        fstart_section = get_u32_from_int(dot_root_file[file_entry_start+24:file_entry_start+28])
+        fsize = get_u32_from_int(dot_root_file[file_entry_start+28:file_entry_start+32])
+
+        if fname != "" and fstart_section != 0:
+            file = FsFileEntry(fname, fstart_section, fsize)
+            root_dir.files.append(file)
+    
+    return header, root_dir, disk_free_sections
 
 def read_file(disk: Disk, name: str):
-    ...
+    header, root_dir, _ = analyze_disk(disk)
+
+    for f in root_dir.files:
+        if f.file_name == name:
+            data = read_raw_file(disk, f.start_section)
+            text = bytes(data[:f.size]).decode(TEXT_ENCODING)
+            hex_dump = False
+            for i in text:
+                if not i.isprintable() and i not in "\n\t\r":
+                    hex_dump = True
+            if hex_dump:
+                print("Hex dump:")
+                dumping = data[:f.size]
+                for ls in range(0, len(dumping), 16):
+                    print(end=f"\x1b[90m{hex(ls)[2:].rjust(8, "0")}\x1b[0m  ")
+                    for os in range(16):
+                        addr = ls + os
+                        if addr < len(dumping):
+                            print(hex(dumping[addr])[2:].rjust(2, "0"), end=" ")
+                        else:
+                            print(end="\x1b[31m..\x1b[0m ")
+                    print(end=" ")
+                    for os in range(16):
+                        addr = ls + os
+                        if addr < len(dumping):
+                            c = chr(dumping[addr])
+                            if c.isprintable():
+                                print(c, end="")
+                            else:
+                                print(end="\x1b[90m.\x1b[0m")
+                        else:
+                            print(end="\x1b[31m.\x1b[0m")
+                    print()
+            else:
+                print(text)
+            return data[:f.size]
+            break
+    else:
+        print(f"File not found: {repr(name)}")
+    
+    return []
+
+def read_file_from_section(disk: Disk, section: int):
+    data = read_raw_file(disk, section)
+    text = bytes(data).decode(TEXT_ENCODING)
+    hex_dump = False
+    for i in text:
+        if not i.isprintable():
+            hex_dump = True
+    if hex_dump:
+        print("Hex dump:")
+        dumping = data
+        for ls in range(0, len(dumping), 16):
+            print(end=f"\x1b[90m{hex(ls)[2:].rjust(8, "0")}\x1b[0m  ")
+            for os in range(16):
+                addr = ls + os
+                if addr < len(dumping):
+                    print(hex(dumping[addr])[2:].rjust(2, "0"), end=" ")
+                else:
+                    print(end="\x1b[31m..\x1b[0m ")
+            print(end=" ")
+            for os in range(16):
+                addr = ls + os
+                if addr < len(dumping):
+                    c = chr(dumping[addr])
+                    if c.isprintable():
+                        print(c, end="")
+                    else:
+                        print(end="\x1b[90m.\x1b[0m")
+                else:
+                    print(end="\x1b[31m.\x1b[0m")
+            print()
+    else:
+        print(text)
+
+def new_file(disk, name: str):
+    header, root_dir, _ = analyze_disk(disk)
+
+    for i, f in enumerate(root_dir.files):
+        if f.file_name == name:
+            print(f"File already exists: {name}")
+            break
+    else:
+        root_dir.files.append(FsFileEntry(name, write_raw_file(disk, header, [0x00]), 0))
+
+        delete_raw_file(disk, header, header.root_dir_file_section)
+        needed_pad = len(root_dir.get_bytes()) % SECTION_SIZE
+        header.root_dir_file_section = write_raw_file(disk, header, list(root_dir.get_bytes()) + [0x00 for _ in range(needed_pad)])
+
+        disk.seek_section(0)
+        disk.write_data(header.get_bytes())
+
+def write_file(disk: Disk, name: str, data: list[int]):
+    header, root_dir, _ = analyze_disk(disk)
+
+    for f in root_dir.files:
+        if f.file_name == name:
+            delete_file(disk, name)
+            header, root_dir, _ = analyze_disk(disk)
+            root_dir.files.append(FsFileEntry(name, write_raw_file(disk, header, data), len(data)))
+            break
+    else:
+        root_dir.files.append(FsFileEntry(name, write_raw_file(disk, header, data), len(data)))
+
+    delete_raw_file(disk, header, header.root_dir_file_section)
+    needed_pad = len(root_dir.get_bytes()) % SECTION_SIZE
+    header.root_dir_file_section = write_raw_file(disk, header, list(root_dir.get_bytes()) + [0x00 for _ in range(needed_pad)])
+
+    disk.seek_section(0)
+    disk.write_data(header.get_bytes())
+
+def delete_file(disk: Disk, name: str):
+    header, root_dir, _ = analyze_disk(disk)
+
+    for i, f in enumerate(root_dir.files):
+        if f.file_name == name:
+            delete_raw_file(disk, header, f.start_section)
+
+            root_dir.files.pop(i)
+
+            delete_raw_file(disk, header, header.root_dir_file_section)
+            needed_pad = len(root_dir.get_bytes()) % SECTION_SIZE
+            header.root_dir_file_section = write_raw_file(disk, header, list(root_dir.get_bytes()) + [0x00 for _ in range(needed_pad)])
+
+            disk.seek_section(0)
+            disk.write_data(header.get_bytes())
+            break
+    else:
+        print(f"File not found: {repr(name)}")
 
 def run_command(disk: Disk, cmd: list[str]):
     if len(cmd) == 1:
         if cmd[0] == "exit":
             exit(0)
+        if cmd[0] == "ls":
+            _, root_dir, _ = analyze_disk(disk)
+            for f in root_dir.files:
+                print(f"{f.file_name:24} {format_byte_size(f.size)}")
+        if cmd[0] == "header":
+            header, _, _ = analyze_disk(disk)
+
+            print("Disk name:", repr(header.disk_name))
+            print("Disk size:", repr(header.disk_size))
+            print("Disk .ROOT file section:", repr(header.root_dir_file_section))
+            print("Disk first free section:", repr(header.first_free_section))
     if len(cmd) == 2:
         if cmd[0] == "format":
             format_disk(disk, cmd[1])
         if cmd[0] == "dump":
             dump_section(disk, int(cmd[1], 0))
-        if cmd[0] == "read":
+        if cmd[0] == "cat":
             read_file(disk, cmd[1])
+        if cmd[0] == "rm":
+            delete_file(disk, cmd[1])
+        if cmd[0] == "rread":
+            read_file_from_section(disk, int(cmd[1], 0))
+        if cmd[0] == "touch":
+            new_file(disk, cmd[1])
+    if len(cmd) == 3:
+        if cmd[0] == "edit":
+            write_file(disk, cmd[1], list(bytes(cmd[2], TEXT_ENCODING)))
+        if cmd[0] == "fhost":
+                with open(cmd[1], "rb") as f:
+                    write_file(disk, cmd[2], list(f.read()))
+        if cmd[0] == "ffs":
+                with open(cmd[2], "wb") as f:
+                    f.write(bytes(read_file(disk, cmd[1])))
 
-def main():
-    disk = Disk.new(1024 ** 2 * 2)
+def main(disk_file: str):
+    with open(disk_file, "rb") as f:
+        disk = Disk(list(f.read()))
 
     print("Disk:")
     print(f"`-- Size: {format_byte_size(disk.size)}")
@@ -281,6 +530,8 @@ def main():
             cmd = shlex.split(l.strip())
 
             run_command(disk, cmd)
+        with open(sys.argv[1], "wb") as f:
+            f.write(bytes(disk.data))
 
 if __name__ == "__main__":
     import sys
@@ -295,4 +546,5 @@ if __name__ == "__main__":
         with open(sys.argv[1], "wb") as f:
             f.write(bytes(disk.data))
         exit(0)
-    main()
+    if len(sys.argv) == 2:
+        main(sys.argv[1])
