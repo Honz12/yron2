@@ -22,6 +22,38 @@ VERBOSE = False
 
 import shlex
 from dataclasses import dataclass
+import os
+import subprocess
+import tempfile
+
+def edit_text_in_editor(initial_text=""):
+    # 1. Detect the user's preferred system editor, or fall back to a safe default
+    # On Windows, 'notepad' is standard; on Unix systems, 'nano' or 'vi' is typically available
+    default_editor = "notepad" if os.name == "nt" else "nano"
+    editor = os.environ.get("EDITOR", default_editor)
+
+    # 2. Create a temporary file and write the initial template text into it
+    with tempfile.NamedTemporaryFile(
+        suffix=".txt", delete=False, mode="w+", encoding="utf-8"
+    ) as tf:
+        tf.write(initial_text)
+        temp_file_path = tf.name
+
+    try:
+        # 3. Launch the text editor and wait for the user to close it
+        # split() ensures arguments like 'code --wait' are parsed correctly as list elements
+        subprocess.run(editor.split() + [temp_file_path], check=True)
+        
+        # 4. Read the modified content back from the file
+        with open(temp_file_path, "r", encoding="utf-8") as tf:
+            edited_text = tf.read()
+
+            return edited_text
+
+    finally:
+        # 5. Always delete the temporary file to avoid cluttering the system
+        if os.path.exists(temp_file_path):
+            os.remove(temp_file_path)
 
 def get_u32_from_int(u: list[int]):
     return (
@@ -511,9 +543,14 @@ def run_command(disk: Disk, cmd: list[str]):
             read_file_from_section(disk, int(cmd[1], 0))
         if cmd[0] == "touch":
             new_file(disk, cmd[1])
-    if len(cmd) == 3:
         if cmd[0] == "edit":
-            write_file(disk, cmd[1], list(bytes(cmd[2], TEXT_ENCODING)))
+            _, root_dir, _ = analyze_disk(disk)
+            text = ""
+            for f in root_dir.files:
+                if f.file_name == cmd[1]:
+                    text = bytes(read_raw_file(disk, f.start_section)[:f.size]).decode(TEXT_ENCODING)
+            write_file(disk, cmd[1], list(bytes(edit_text_in_editor(text), TEXT_ENCODING)))
+    if len(cmd) == 3:
         if cmd[0] == "fhost":
                 with open(cmd[1], "rb") as f:
                     write_file(disk, cmd[2], list(f.read()))

@@ -12,8 +12,8 @@ func read_disk_section(u32 section, u32 destination_in_ram) {
     disk_seek(section * 256);
     disk_read(256, destination_in_ram);
 
-    puts("Read section ");
-    putu(section);
+    puts("Read section 0x");
+    dumph32(section);
     puts(" from disk.\n");
 }
 
@@ -77,5 +77,5 @@ func main() {
 
     putc('\n');
 
-    dump_mem(disk_name, 32);
+    dump_mem(disk_name, 16);
 }
