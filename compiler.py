@@ -1271,6 +1271,8 @@ class CodeGenerator:
                 TT_EQUAL: "eq",
                 TT_GREATER: "gt",
                 TT_LESSER: "lt",
+                TT_GTE: "gte",
+                TT_LTE: "lte",
             }
 
             self.append(insts[node.optok.t], " 0x0d 0x0e ", hex(reg))
