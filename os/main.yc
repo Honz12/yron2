@@ -2,6 +2,7 @@ u32 disk_name;
 u32 disk_dot_root_pointer;
 u32 disk_size;
 u32 disk_first_free_section;
+u32 disk_section_count;
 
 /* ===========================================================================================
                                         MEMORY DISPLAY
@@ -65,11 +66,28 @@ func fs_analyze_disk() {
     copy_mem(destination, loc(disk_size), 4);
     destination = destination + 4;
     copy_mem(destination, loc(disk_first_free_section), 4);
+
+    disk_section_count = disk_size / 256;
 }
 
 /* Returns the next section from the file table. */
 func fs_get_continuing_section(u32 from_section) {
-    return 0;
+    if (from_section >= disk_section_count) {
+        puts("\e[33;1mWARN: Tried to get invalid sector continuation in file table.\e[0m\nPress any to continue ...\n");
+        getc();
+        return 0;
+    }
+
+    disk_seek(
+        256 + // first section (header)
+        from_section * 4 // 4 bytes per section
+    );
+
+    u32 ret_val;
+
+    disk_read(4, loc(ret_val));
+
+    return ret_val;
 }
 
 /* Returns the total ammount of sections occupied by a file,
