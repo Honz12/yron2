@@ -3,34 +3,14 @@ u32 disk_dot_root_pointer;
 u32 disk_size;
 u32 disk_first_free_section;
 
+/* ===========================================================================================
+                                        MEMORY DISPLAY
+=========================================================================================== */
+
 /* Puts a single byte onto the screen in %08x format. */
 func putb(u8 byte) {
     puth(byte / 16);
     puth(byte % 16);
-}
-
-/* Reads the specified section (256 bytes) into destination_in_ram. */
-func read_disk_section(u32 section, u32 destination_in_ram) {
-    disk_seek(section * 256);
-    disk_read(256, destination_in_ram);
-
-    puts("Read section 0x");
-    dumph32(section);
-    puts(" from disk.\n");
-}
-
-/* Loads the header. */
-func analyze_disk() {
-    u32 destination = alc(256);
-    read_disk_section(0, destination + __get_MS());
-
-    copy_mem(destination, disk_name, 16);
-    destination = destination + 16;
-    copy_mem(destination, loc(disk_dot_root_pointer), 4);
-    destination = destination + 4;
-    copy_mem(destination, loc(disk_size), 4);
-    destination = destination + 4;
-    copy_mem(destination, loc(disk_first_free_section), 4);
 }
 
 /* Dumps a 32 unsigned integer in the %08x format. */
@@ -59,11 +39,52 @@ func dump_mem(u32 pointer, u32 num_bytes) {
     putc('\n');
 }
 
+/* ===========================================================================================
+                                        FILE SYSTEM
+=========================================================================================== */
+
+/* Reads the specified section (256 bytes) into destination_in_ram. */
+func fs_read_disk_section(u32 section, u32 destination_in_ram) {
+    disk_seek(section * 256);
+    disk_read(256, destination_in_ram);
+
+    puts("Read section 0x");
+    dumph32(section);
+    puts(" from disk.\n");
+}
+
+/* Loads the header. */
+func fs_analyze_disk() {
+    u32 destination = alc(256);
+    fs_read_disk_section(0, destination + __get_MS());
+
+    copy_mem(destination, disk_name, 16);
+    destination = destination + 16;
+    copy_mem(destination, loc(disk_dot_root_pointer), 4);
+    destination = destination + 4;
+    copy_mem(destination, loc(disk_size), 4);
+    destination = destination + 4;
+    copy_mem(destination, loc(disk_first_free_section), 4);
+}
+
+/* Returns the next section from the file table. */
+func fs_get_continuing_section(u32 from_section) {
+    return 0;
+}
+
+/* Returns the total ammount of sections occupied by a file,
+    If passed the first free section, works as measuring
+    free space. */
+func fs_get_file_occupying(u32 start_section) {
+    u32 occupying = 0;
+    return occupying;
+}
+
 /* Entry point */
 func main() {
     disk_name = alc(17);
 
-    analyze_disk();
+    fs_analyze_disk();
 
     puts("Disk name: ");
     puts(disk_name);
