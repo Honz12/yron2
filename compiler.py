@@ -31,6 +31,8 @@ TT_MOD = "mod"
 TT_LESSER = "lesser"
 TT_GREATER = "greater"
 TT_EQUAL = "equal"
+TT_LTE = "lte"
+TT_GTE = "gte"
 
 TT_AND = "and"
 TT_NAND = "nand"
@@ -139,10 +141,7 @@ SYMBOL_MAP = {
     "+": TT_PLUS,
     "-": TT_MINUS,
     "*": TT_MUL,
-    "/": TT_DIV,
     "%": TT_MOD,
-    "<": TT_LESSER,
-    ">": TT_GREATER,
 
     "(": TT_LPAREN,
     ")": TT_RPAREN,
@@ -156,11 +155,16 @@ SYMBOL_MAP = {
     "^": TT_XOR,
 }
 
+C_NONE = 0
+C_ONELINE = 1
+C_MULTILINE = 2
+
 class Lexer:
     def __init__(self, code: str, file_name: str):
         self.code = code
         self.pos = Position(-1, 1, 0, file_name)
         self.c = None
+        self.comment = C_NONE
 
         self.advance()
 
@@ -179,42 +183,79 @@ class Lexer:
         tokens: list[Token] = []
 
         while self.c is not None:
-            if self.c in " \n\t":
-                self.advance()
-            elif self.c in DIGITS:
-                tokens.append(self.get_int())
-            elif self.c in ALPHA:
-                tokens.append(self.get_iden())
-            elif self.c == '"':
-                tokens.append(self.get_string())
-            elif self.c == "'":
-                tokens.append(self.get_char())
-            elif self.c in SYMBOL_MAP:
-                start_pos = self.pos.copy()
-                token_type = SYMBOL_MAP[self.c]
-                self.advance()
-                tokens.append(Token(token_type, None, start_pos, self.pos.copy()))
-            elif self.c == "=":
-                start_pos = self.pos.copy()
-                self.advance()
-                if self.c == "=":
+            if self.comment == C_NONE:
+                if self.c in " \n\t":
                     self.advance()
-                    tokens.append(Token(TT_EQUAL, None, start_pos, self.pos.copy()))
-                else:
-                    tokens.append(Token(TT_ASSIGN, None, start_pos, self.pos.copy()))
-            elif self.c == "~":
-                start_pos = self.pos.copy()
-                self.advance()
-                if self.c == "&":
+                elif self.c in DIGITS:
+                    tokens.append(self.get_int())
+                elif self.c in ALPHA:
+                    tokens.append(self.get_iden())
+                elif self.c == '"':
+                    tokens.append(self.get_string())
+                elif self.c == "'":
+                    tokens.append(self.get_char())
+                elif self.c in SYMBOL_MAP:
+                    start_pos = self.pos.copy()
+                    token_type = SYMBOL_MAP[self.c]
                     self.advance()
-                    tokens.append(Token(TT_NAND, None, start_pos, self.pos.copy()))
-                elif self.c == "|":
-                    tokens.append(Token(TT_NOR, None, start_pos, self.pos.copy()))
+                    tokens.append(Token(token_type, None, start_pos, self.pos.copy()))
+                elif self.c == "=":
+                    start_pos = self.pos.copy()
+                    self.advance()
+                    if self.c == "=":
+                        self.advance()
+                        tokens.append(Token(TT_EQUAL, None, start_pos, self.pos.copy()))
+                    else:
+                        tokens.append(Token(TT_ASSIGN, None, start_pos, self.pos.copy()))
+                elif self.c == "<":
+                    start_pos = self.pos.copy()
+                    self.advance()
+                    if self.c == "=":
+                        self.advance()
+                        tokens.append(Token(TT_LTE, None, start_pos, self.pos.copy()))
+                    else:
+                        tokens.append(Token(TT_LESSER, None, start_pos, self.pos.copy()))
+                elif self.c == ">":
+                    start_pos = self.pos.copy()
+                    self.advance()
+                    if self.c == "=":
+                        self.advance()
+                        tokens.append(Token(TT_GTE, None, start_pos, self.pos.copy()))
+                    else:
+                        tokens.append(Token(TT_GREATER, None, start_pos, self.pos.copy()))
+                elif self.c == "/":
+                    start_pos = self.pos.copy()
+                    self.advance()
+                    if self.c == "/":
+                        self.advance()
+                        self.comment = C_ONELINE
+                    elif self.c == "*":
+                        self.advance()
+                        self.comment = C_MULTILINE
+                    else:
+                        tokens.append(Token(TT_DIV, None, start_pos, self.pos.copy()))
+                elif self.c == "~":
+                    start_pos = self.pos.copy()
+                    self.advance()
+                    if self.c == "&":
+                        self.advance()
+                        tokens.append(Token(TT_NAND, None, start_pos, self.pos.copy()))
+                    elif self.c == "|":
+                        tokens.append(Token(TT_NOR, None, start_pos, self.pos.copy()))
+                    else:
+                        CompilerError(f"LEXER - Got unepected character {repr(self.c)} after '~'.", self.pos).throw()
                 else:
-                    CompilerError(f"LEXER - Got unepected character {repr(self.c)} after '~'.", self.pos).throw()
-            else:
-                CompilerError(f"LEXER - Got unepected character {repr(self.c)}.", self.pos).throw()
-
+                    CompilerError(f"LEXER - Got unepected character {repr(self.c)}.", self.pos).throw()
+            elif self.comment == C_ONELINE:
+                if self.c == "\n":
+                    self.comment = C_NONE
+                self.advance()
+            elif self.comment == C_MULTILINE:
+                if self.c == "*":
+                    self.advance()
+                    if self.c == "/":
+                        self.comment = C_NONE
+                self.advance()
         return tokens
 
 
