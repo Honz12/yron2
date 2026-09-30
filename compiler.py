@@ -736,6 +736,17 @@ class UnaryOpNode(AstNode):
             if self.optok.t == TT_DEC:
                 return LiteralIntNode(self.start_pos, self.end_pos, self.value.number - 1)
 
+@dataclass
+class DefineStatementNode(AstNode):
+    name: str
+    value: AstNode
+
+    def __str__(self):
+        o = "DefineStatement"
+        o += self.format_as_child(repr(self.name))
+        o += self.format_as_child(self.value, True)
+        return o
+
 VARIBLE_TYPES = {
     TT_KW_U8: (1, False),
     TT_KW_U16: (2, False),
@@ -902,6 +913,12 @@ class Parser:
             self.advance()
             self.consume(TT_SEMI)
             return BreakpointStatementNode(base_token.start, base_token.end)
+        
+        elif base_token.t == TT_KW_DEF:
+            self.advance()
+            name = self.consume(TT_IDEN).v
+            value = self.make_expr()
+            return DefineStatementNode(base_token.start, value.end_pos, name, value)
 
         elif base_token.t in (TT_INT, TT_LPAREN, TT_IDEN, TT_KW_LOC, TT_KW_ALC, TT_INC, TT_DEC):
             expr = self.make_expr()
@@ -1332,6 +1349,9 @@ class CodeGenerator:
             
             self.append("ldi32 ", hex(reg), " ", hex(len(self.allocator_bytes) + OPT_VAR_START_ADDR))
             self.allocator_bytes += [((node.cells[i].number if isinstance(node.cells[i], LiteralIntNode) else 0x00) if i < len(node.cells) else 0x00) for i in range(space.number)]
+        elif isinstance(node, UnaryOpNode):
+            self.resolve_expr_into_reg(node.value)
+            self.append(f"{"inc" if node.optok.t == TT_INC else "dec"} ", hex(reg))
         else:
             return CompilerError(f"CODE GEN - AST node {type(node).__name__} can't be an expression.", node.start_pos)
 
