@@ -44,10 +44,10 @@ func dump_mem(u32 pointer, u32 num_bytes) {
                                         FILE SYSTEM
 =========================================================================================== */
 
-/* Reads the specified section (256 bytes) into destination_in_ram. */
+/* Reads the specified section (512 bytes) into destination_in_ram. */
 func fs_read_disk_section(u32 section, u32 destination_in_ram) {
-    disk_seek(section * 256);
-    disk_read(256, destination_in_ram);
+    disk_seek(section * 512);
+    disk_read(512, destination_in_ram);
 
     puts("Read section 0x");
     dumph32(section);
@@ -56,7 +56,7 @@ func fs_read_disk_section(u32 section, u32 destination_in_ram) {
 
 /* Loads the header. */
 func fs_analyze_disk() {
-    u32 destination = alc(256);
+    u32 destination = alc(512);
     fs_read_disk_section(0, destination + __get_MS());
 
     copy_mem(destination, disk_name, 16);
@@ -67,7 +67,7 @@ func fs_analyze_disk() {
     destination = destination + 4;
     copy_mem(destination, loc(disk_first_free_section), 4);
 
-    disk_section_count = disk_size / 256;
+    disk_section_count = disk_size / 512;
 }
 
 /* Returns the next section from the file table. */
@@ -79,7 +79,7 @@ func fs_get_continuing_section(u32 from_section) {
     }
 
     disk_seek(
-        256 + // first section (header)
+        512 + // first section (header)
         from_section * 4 // 4 bytes per section
     );
 
@@ -95,11 +95,17 @@ func fs_get_continuing_section(u32 from_section) {
     free space. */
 func fs_get_file_occupying(u32 start_section) {
     u32 occupying = 0;
+    while (start_section != 0) {
+        occupying = ++occupying;
+        start_section = fs_get_continuing_section(start_section);
+    }
     return occupying;
 }
 
 /* Entry point */
 func main() {
+    puts("\nWelcome to FungOS\n(C) Jan Parik (Honz12 on github) 2026\n");
+
     disk_name = alc(17);
 
     fs_analyze_disk();
@@ -118,16 +124,9 @@ func main() {
 
     puts("First free section: ");
     putu(disk_first_free_section);
+    puts("\n\n");
+
+    puts(".ROOT size (sections): ");
+    putu(fs_get_file_occupying(disk_dot_root_pointer));
     putc('\n');
-
-    putc('\n');
-
-    dump_mem(disk_name, 16);
-
-    putc('\n');
-
-    while (1) {
-        putc(getc());
-        putc('\a');
-    }
 }

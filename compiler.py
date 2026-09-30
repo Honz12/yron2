@@ -3,9 +3,6 @@ from typing import Any
 import shutil
 
 OPT_USE_ASCII = False
-OPT_CAN_SIMPLIFY_EXPRESIONS = True
-OPT_CAN_REMOVE_STANDALONE_LITERALS = True
-OPT_CAN_SIMPLIFY_IF_STATEMENTS = True
 OPT_INCLUDE_STD_CODE = True
 OPT_VAR_START_ADDR = 0x05
 
@@ -28,17 +25,22 @@ TT_MINUS = "minus"
 TT_MUL = "mul"
 TT_DIV = "div"
 TT_MOD = "mod"
+
 TT_LESSER = "lesser"
 TT_GREATER = "greater"
 TT_EQUAL = "equal"
 TT_LTE = "lte"
 TT_GTE = "gte"
+TT_NEQ = "neq"
 
 TT_AND = "and"
 TT_NAND = "nand"
 TT_OR = "or"
 TT_NOR = "nor"
 TT_XOR = "xor"
+
+TT_INC = "inc"
+TT_DEC = "dec"
 
 TT_LPAREN = "lparen"
 TT_RPAREN = "rparen"
@@ -71,6 +73,8 @@ TT_KW_LOC = "kw_loc"
 TT_KW_ALC = "kw_alc"
 
 TT_KW_BREAKPOINT = "kw_breakpoint"
+
+TT_KW_DEF = "kw_def"
 
 @dataclass
 class Token:
@@ -132,14 +136,14 @@ KEYWORD_MAP = {
     "alc": TT_KW_ALC,
 
     "breakpoint": TT_KW_BREAKPOINT,
+
+    "def": TT_KW_DEF,
 }
 
 SYMBOL_MAP = {
     ";": TT_SEMI,
     ",": TT_COMMA,
-
-    "+": TT_PLUS,
-    "-": TT_MINUS,
+    
     "*": TT_MUL,
     "%": TT_MOD,
 
@@ -207,6 +211,30 @@ class Lexer:
                         tokens.append(Token(TT_EQUAL, None, start_pos, self.pos.copy()))
                     else:
                         tokens.append(Token(TT_ASSIGN, None, start_pos, self.pos.copy()))
+                elif self.c == "+":
+                    start_pos = self.pos.copy()
+                    self.advance()
+                    if self.c == "+":
+                        self.advance()
+                        tokens.append(Token(TT_INC, None, start_pos, self.pos.copy()))
+                    else:
+                        tokens.append(Token(TT_PLUS, None, start_pos, self.pos.copy()))
+                elif self.c == "-":
+                    start_pos = self.pos.copy()
+                    self.advance()
+                    if self.c == "-":
+                        self.advance()
+                        tokens.append(Token(TT_DEC, None, start_pos, self.pos.copy()))
+                    else:
+                        tokens.append(Token(TT_MINUS, None, start_pos, self.pos.copy()))
+                elif self.c == "!":
+                    start_pos = self.pos.copy()
+                    self.advance()
+                    if self.c == "=":
+                        self.advance()
+                        tokens.append(Token(TT_NEQ, None, start_pos, self.pos.copy()))
+                    else:
+                        CompilerError(f"LEXER - Got unepected character {repr(self.c)} after '!'.", self.pos).throw()
                 elif self.c == "<":
                     start_pos = self.pos.copy()
                     self.advance()
@@ -396,6 +424,16 @@ class VariableData:
 
         return o
 
+@dataclass
+class DefineData:
+    name: str
+    value: AstNode
+
+    def __str__(self):
+        o += "DefineData"
+        o += AstNode.format_as_child(repr(self.name), False)
+        o += AstNode.format_as_child(self.value, True)
+
 CSET = ASCII_LINES if OPT_USE_ASCII else UTF_LINES
 
 @dataclass
@@ -425,7 +463,7 @@ class AstNode:
         return self
 
     def force_optimize(self):
-        return self
+        return self.optimize()
 
 @dataclass
 class LiteralIntNode(AstNode):
@@ -448,37 +486,6 @@ class BinOpNone(AstNode):
         return o
 
     def optimize(self):
-        self.left = self.left.optimize()
-        self.right = self.right.optimize()
-        
-        if isinstance(self.left, LiteralIntNode) and isinstance(self.right, LiteralIntNode) and OPT_CAN_SIMPLIFY_EXPRESIONS:
-            if self.optok.t == TT_PLUS:
-                return LiteralIntNode(self.start_pos, self.end_pos, self.left.number + self.right.number)
-            if self.optok.t == TT_MINUS:
-                return LiteralIntNode(self.start_pos, self.end_pos, self.left.number - self.right.number)
-            if self.optok.t == TT_MUL:
-                return LiteralIntNode(self.start_pos, self.end_pos, self.left.number * self.right.number)
-            if self.optok.t == TT_DIV:
-                return LiteralIntNode(self.start_pos, self.end_pos, self.left.number // self.right.number if self.right.number != 0 else 0)
-            if self.optok.t == TT_MOD:
-                return LiteralIntNode(self.start_pos, self.end_pos, self.left.number % self.right.number)
-            if self.optok.t == TT_EQUAL:
-                return LiteralIntNode(self.start_pos, self.end_pos, 1 if self.left.number == self.right.number else 0)
-            if self.optok.t == TT_LESSER:
-                return LiteralIntNode(self.start_pos, self.end_pos, 1 if self.left.number < self.right.number else 0)
-            if self.optok.t == TT_GREATER:
-                return LiteralIntNode(self.start_pos, self.end_pos, 1 if self.left.number > self.right.number else 0)
-            
-        if isinstance(self.left, LiteralIntNode) and isinstance(self.right, VariableReferenceNode) and OPT_CAN_SIMPLIFY_EXPRESIONS:
-            if self.optok.t == TT_MUL and self.left.number == 0:
-                return LiteralIntNode(self.start_pos, self.end_pos, 0)
-            
-        if isinstance(self.left, VariableReferenceNode) and isinstance(self.right, LiteralIntNode) and OPT_CAN_SIMPLIFY_EXPRESIONS:
-            if self.optok.t == TT_MUL and self.right.number == 0:
-                return LiteralIntNode(self.start_pos, self.end_pos, 0)
-        return super().optimize()
-
-    def force_optimize(self):
         self.left = self.left.optimize()
         self.right = self.right.optimize()
         
@@ -540,7 +547,7 @@ class ProgramNode(AstNode):
         i = 0
         while i < len(self.statements):
             self.statements[i] = self.statements[i].optimize()
-            if isinstance(self.statements[i], LiteralIntNode) and OPT_CAN_REMOVE_STANDALONE_LITERALS:
+            if isinstance(self.statements[i], LiteralIntNode):
                 self.statements.pop(i)
                 i -= 1
             elif isinstance(self.statements[i], ProgramNode):
@@ -652,7 +659,7 @@ class IfStatementNode(AstNode):
         self.if_branch = self.if_branch.optimize()
         if self.else_branch:
             self.else_branch = self.else_branch.optimize()
-        if isinstance(self.condition, LiteralIntNode) and OPT_CAN_SIMPLIFY_IF_STATEMENTS:
+        if isinstance(self.condition, LiteralIntNode):
             if self.condition.number != 0:
                 return self.if_branch
             if self.condition.number == 0:
@@ -711,6 +718,23 @@ class AssignStatementNode(AstNode):
 class BreakpointStatementNode(AstNode):
     def __str__(self):
         return "BreakpointStatement"
+
+@dataclass
+class UnaryOpNode(AstNode):
+    value: AstNode
+    optok: Token
+    def __str__(self):
+        o = f"UnaryOp {self.optok}"
+        o += self.format_as_child(self.value, True)
+        return o
+    
+    def optimize(self):
+        self.value = self.value.optimize()
+        if isinstance(self.value, LiteralIntNode):
+            if self.optok.t == TT_INC:
+                return LiteralIntNode(self.start_pos, self.end_pos, self.value.number + 1)
+            if self.optok.t == TT_DEC:
+                return LiteralIntNode(self.start_pos, self.end_pos, self.value.number - 1)
 
 VARIBLE_TYPES = {
     TT_KW_U8: (1, False),
@@ -879,7 +903,7 @@ class Parser:
             self.consume(TT_SEMI)
             return BreakpointStatementNode(base_token.start, base_token.end)
 
-        elif base_token.t in (TT_INT, TT_LPAREN, TT_IDEN, TT_KW_LOC, TT_KW_ALC):
+        elif base_token.t in (TT_INT, TT_LPAREN, TT_IDEN, TT_KW_LOC, TT_KW_ALC, TT_INC, TT_DEC):
             expr = self.make_expr()
             self.consume(TT_SEMI)
             return expr
@@ -921,7 +945,7 @@ class Parser:
         return left
 
     def make_com_ops(self):
-        return self.make_bin_op(self.make_bit_op, TT_EQUAL, TT_LESSER, TT_GREATER, TT_LTE, TT_GTE)
+        return self.make_bin_op(self.make_bit_op, TT_EQUAL, TT_LESSER, TT_GREATER, TT_LTE, TT_GTE, TT_NEQ)
 
     def make_bit_op(self):
         return self.make_bin_op(self.make_mul_div_mod, TT_OR, TT_NOR, TT_XOR, TT_AND, TT_NAND)
@@ -1014,6 +1038,14 @@ class Parser:
             values.append(LiteralIntNode(t.start, t.end, 0x00))
 
             return AllocateSpaceNode(t.start, t.end, LiteralIntNode(t.start, t.end, len(values)), values)
+        
+        if self.t.t in (TT_INC, TT_DEC):
+            t = self.t
+            self.advance()
+
+            value = self.make_factor()
+
+            return UnaryOpNode(t.start, value.end_pos, value, t)
         
         CompilerError(f"PARSER - Unexpected token in factor {str(self.t)}.", self.t.start)
 
@@ -1277,6 +1309,7 @@ class CodeGenerator:
                 TT_LESSER: "lt",
                 TT_GTE: "gte",
                 TT_LTE: "lte",
+                TT_NEQ: "neq",
             }
 
             self.append(insts[node.optok.t], " 0x0d 0x0e ", hex(reg))
@@ -1418,18 +1451,6 @@ if __name__ == "__main__":
     for a in command_line_args:
         if multi_arg_mode == "-o":
             output_file = a
-            multi_arg_mode = ""
-
-        elif multi_arg_mode == "--can-simplify-expresions":
-            OPT_CAN_SIMPLIFY_EXPRESIONS = a in ("True", "true", "1", "t")
-            multi_arg_mode = ""
-
-        elif multi_arg_mode == "--can-remove-standalone":
-            OPT_CAN_REMOVE_STANDALONE_LITERALS = a in ("True", "true", "1", "t")
-            multi_arg_mode = ""
-
-        elif multi_arg_mode == "--can-simplify-if":
-            OPT_CAN_SIMPLIFY_IF_STATEMENTS = a in ("True", "true", "1", "t")
             multi_arg_mode = ""
 
         elif multi_arg_mode == "--include-std-code":

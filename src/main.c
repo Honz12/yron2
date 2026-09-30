@@ -14,7 +14,7 @@
 #define REG_MS 2
 #define INT_TABLE_START (uint32_t)1024
 #define INT_TABLE_SIZE (uint32_t)256 // 256 * 4 = 1024
-#define SUB_INSTRUCTION_COUNT (1024) // RECOMENDED TO ADJUST FOR BETTER/WORSE COMPUTERS!
+#define SUB_INSTRUCTION_COUNT (1024 * 16) // RECOMENDED TO ADJUST FOR BETTER/WORSE COMPUTERS!
 #define INT_GEN_ERR 0x00
 #define INT_INV_RAM_ADDR_ERR 0x01
 
@@ -86,6 +86,7 @@ typedef struct {
 
 typedef struct {
     uint32_t buffered_input;
+    uint32_t last_input;
 } TerminalIoDeviceData;
 
 typedef struct {
@@ -235,8 +236,9 @@ void update_devices(DevicesData *devices_data) {
     {
         uint32_t input = getch();
 
-        if ((32 <= input && input <= 127) || input == '\n' || input == '\t' || input == '\b') {
+        if (input != ~(uint32_t)0) {
             devices_data->terminal_io_device_data->buffered_input = input;
+            devices_data->terminal_io_device_data->last_input = input;
         }
     }
 }
@@ -1067,6 +1069,21 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data, DisplayData *display_
             }
             break;
         
+        case 0x45: // NEQ
+            {
+                cpu_data->regs[REG_PC] += 4;
+
+                uint8_t reg_a = cpu_get_ram(cpu_data, pc + 1);
+                uint8_t reg_b = cpu_get_ram(cpu_data, pc + 2);
+                uint8_t reg_str = cpu_get_ram(cpu_data, pc + 3);
+
+                cpu_set_reg(
+                    cpu_data, reg_str,
+                    cpu_get_reg(cpu_data, reg_a) != cpu_get_reg(cpu_data, reg_b)
+                );
+            }
+            break;
+        
         case 0x48: // JMP
             {
                 uint32_t value = cpu_get_ram(cpu_data, pc + 1);
@@ -1175,8 +1192,6 @@ void draw_box(int start_y, int start_x, int height, int width) {
 }
 
 void tick_display(DisplayData *display_data, DevicesData *devices_data, const char *ips_string, int fps) {
-    clear();
-
     int display_width = 0;
     int display_height = 0;
     
@@ -1201,95 +1216,34 @@ void tick_display(DisplayData *display_data, DevicesData *devices_data, const ch
                             int i = col + row * DISPLAY_TERM_WIDTH;
 
                             char c = display_data->data.term_mode.term_chars[i];
-
-                            waddch(stdscr, c);
+                            if (i == display_data->data.term_mode.caret) {
+                                attron(A_REVERSE);
+                                waddch(stdscr, c);
+                                attroff(A_REVERSE);
+                            }
+                            else {
+                                waddch(stdscr, c);
+                            }
                         }
                     }
 
                     draw_box(0, 0, DISPLAY_TERM_HEIGHT + 2, DISPLAY_TERM_WIDTH + 2);
+                    attron(A_REVERSE);
+                    mvwaddstr(stdscr, 0, 2, " Display 1 - TERMINAL 80x25 ");
+                    attroff(A_REVERSE);
                 }
 
                 break;
             }
     }
 
-    attron(A_REVERSE);
-    mvprintw(display_height - 3, 0, "INPUT CHAR: 0x%x ('%c')", devices_data->terminal_io_device_data->buffered_input, devices_data->terminal_io_device_data->buffered_input);
-    mvprintw(display_height - 2, 0, "FPS %d", fps);
-    mvprintw(display_height - 1, 0, "%s", ips_string);
-    attroff(A_REVERSE);
+    mvprintw(display_height - 2, 0, "FPS %d          ", fps);
+    mvprintw(display_height - 1, 0, "%s              ", ips_string);
 
     refresh();
 }
 
 int main(int argc, char *argv[]) {
-    char *instruction_names[256] = {
-        [0x00] = "NOP",
-        [0x01] = "CALL",
-        [0x02] = "RET",
-        [0x03] = "INT",
-        [0x04] = "IRET",
-        [0x05] = "MOV",
-
-        [0x08] = "PUSH8",
-        [0x09] = "PUSH16",
-        [0x0A] = "PUSH32",
-        [0x0B] = "POP8",
-        [0x0C] = "POP16",
-        [0x0D] = "POP32",
-
-        [0x10] = "LDI8",
-        [0x11] = "LDI16",
-        [0x12] = "LDI32",
-
-        [0x14] = "LD8",
-        [0x15] = "LD16",
-        [0x16] = "LD32",
-
-        [0x18] = "LDP8",
-        [0x19] = "LDP16",
-        [0x1A] = "LDP32",
-
-        [0x1C] = "ST8",
-        [0x1D] = "ST16",
-        [0x1E] = "ST32",
-
-        [0x20] = "STP8",
-        [0x21] = "STP16",
-        [0x22] = "STP32",
-
-        [0x24] = "ADD",
-        [0x25] = "SUB",
-        [0x26] = "MUL",
-        [0x27] = "MULS",
-        [0x28] = "DIV",
-        [0x29] = "DIVS",
-        [0x2A] = "MOD",
-        [0x2B] = "MODS",
-        [0x2C] = "INC",
-        [0x2D] = "DEC",
-
-        [0x30] = "AND",
-        [0x31] = "NAND",
-        [0x32] = "OR",
-        [0x33] = "NOR",
-        [0x34] = "XOR",
-
-        [0x40] = "EQ",
-        [0x41] = "GT",
-        [0x42] = "GTE",
-        [0x43] = "LT",
-        [0x44] = "LTE",
-
-        [0x48] = "JMP",
-        [0x49] = "JZ",
-        [0x4A] = "JNZ",
-        [0x4B] = "LJMP",
-
-        [0x50] = "SND",
-        [0x51] = "RCV"
-    };
-
     printf("\x1b]0;YRON2 CPU VM\x07");
 
     printf("YRON2\n");
@@ -1435,22 +1389,22 @@ int main(int argc, char *argv[]) {
             fps = frames;
             frames = 0;
             if (!g_debug_mode && !g_clean_mode) {
-                if (current_ips > 10e9) {
+                if (current_ips > 10e10) {
                     snprintf(current_ips_text, sizeof(current_ips_text), "SPEED: %.2f GI/s\n", current_ips / 1e9);
                 }
-                else if (current_ips > 10e6) {
-                    snprintf(current_ips_text, sizeof(current_ips_text), "SPEED: %.2f MI/s\n", current_ips / 1e9);
+                else if (current_ips > 10e7) {
+                    snprintf(current_ips_text, sizeof(current_ips_text), "SPEED: %.2f MI/s\n", current_ips / 1e6);
                 }
-                else if (current_ips > 10e3) {
-                    snprintf(current_ips_text, sizeof(current_ips_text), "SPEED: %.2f KI/s\n", current_ips / 1e9);
+                else if (current_ips > 10e4) {
+                    snprintf(current_ips_text, sizeof(current_ips_text), "SPEED: %.2f KI/s\n", current_ips / 1e3);
                 }
                 else {
-                    snprintf(current_ips_text, sizeof(current_ips_text), "SPEED: %.2f I/s\n", current_ips / 1e9);
+                    snprintf(current_ips_text, sizeof(current_ips_text), "SPEED: %d I/s\n", current_ips);
                 }
             }
         }
 
-        process_sleep(1e6 / 30);
+        process_sleep(1e6 / 60);
     }
 
     endwin();

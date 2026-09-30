@@ -83,6 +83,7 @@ INST_FORMATS = {
     "GTE":      InstructionData(0x42, [IA_1B, IA_1B, IA_1B]),
     "LT":       InstructionData(0x43, [IA_1B, IA_1B, IA_1B]),
     "LTE":      InstructionData(0x44, [IA_1B, IA_1B, IA_1B]),
+    "NEQ":      InstructionData(0x45, [IA_1B, IA_1B, IA_1B]),
 
     "JMP":      InstructionData(0x48, [IA_4B]),
     "JZ":       InstructionData(0x49, [IA_4B, IA_1B]),
