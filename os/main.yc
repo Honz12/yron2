@@ -123,4 +123,11 @@ func main() {
     putc('\n');
 
     dump_mem(disk_name, 16);
+
+    putc('\n');
+
+    while (1) {
+        putc(getc());
+        putc('\a');
+    }
 }

@@ -499,6 +499,10 @@ class BinOpNone(AstNode):
                 return LiteralIntNode(self.start_pos, self.end_pos, 1 if self.left.number > self.right.number else 0)
             if self.optok.t == TT_GREATER:
                 return LiteralIntNode(self.start_pos, self.end_pos, 1 if self.left.number < self.right.number else 0)
+            if self.optok.t == TT_LTE:
+                return LiteralIntNode(self.start_pos, self.end_pos, 1 if self.left.number >= self.right.number else 0)
+            if self.optok.t == TT_GTE:
+                return LiteralIntNode(self.start_pos, self.end_pos, 1 if self.left.number <= self.right.number else 0)
             if self.optok.t == TT_OR:
                 return LiteralIntNode(self.start_pos, self.end_pos, self.left.number | self.right.number)
             if self.optok.t == TT_NOR:
@@ -917,7 +921,7 @@ class Parser:
         return left
 
     def make_com_ops(self):
-        return self.make_bin_op(self.make_bit_op, TT_EQUAL, TT_LESSER, TT_GREATER)
+        return self.make_bin_op(self.make_bit_op, TT_EQUAL, TT_LESSER, TT_GREATER, TT_LTE, TT_GTE)
 
     def make_bit_op(self):
         return self.make_bin_op(self.make_mul_div_mod, TT_OR, TT_NOR, TT_XOR, TT_AND, TT_NAND)

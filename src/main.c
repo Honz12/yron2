@@ -2,7 +2,9 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <string.h>
 #include <time.h>
+#include <ncurses.h>
 #include "helpers.h"
 
 
@@ -12,9 +14,68 @@
 #define REG_MS 2
 #define INT_TABLE_START (uint32_t)1024
 #define INT_TABLE_SIZE (uint32_t)256 // 256 * 4 = 1024
-#define SUB_INSTRUCTION_COUNT (1024 * 1024 * 4) // RECOMENDED TO ADJUST FOR BETTER/WORSE COMPUTERS!
+#define SUB_INSTRUCTION_COUNT (1024) // RECOMENDED TO ADJUST FOR BETTER/WORSE COMPUTERS!
 #define INT_GEN_ERR 0x00
 #define INT_INV_RAM_ADDR_ERR 0x01
+
+#define DISPLAY_TERM_WIDTH 80
+#define DISPLAY_TERM_HEIGHT 25
+
+typedef enum : char {
+    DISPLAY_MODE_TERMINAL
+} DisplayMode;
+
+typedef struct {
+    DisplayMode display_mode;
+
+    union {
+        struct {
+            int caret;
+            char term_chars[DISPLAY_TERM_WIDTH * DISPLAY_TERM_HEIGHT];
+        } term_mode;
+    } data;
+} DisplayData;
+
+void display_terminal_mode_putc(DisplayData *display_data, char c) {
+    if (display_data->display_mode == DISPLAY_MODE_TERMINAL) {
+        int caret = display_data->data.term_mode.caret;
+        int max_chars = DISPLAY_TERM_WIDTH * DISPLAY_TERM_HEIGHT;
+
+        if (c == '\n') {
+            caret = (caret / DISPLAY_TERM_WIDTH + 1) * DISPLAY_TERM_WIDTH;
+        }
+        else if (c == '\t') {
+            caret = (caret / 8 + 1) * 8;
+        }
+        else if (c == '\a') {
+            beep();
+        }
+        else {
+            if (caret < max_chars) {
+                display_data->data.term_mode.term_chars[caret] = c;
+            }
+            caret++;
+        }
+
+        while (caret >= max_chars) {
+            memmove(
+                display_data->data.term_mode.term_chars,
+                display_data->data.term_mode.term_chars + DISPLAY_TERM_WIDTH,
+                DISPLAY_TERM_WIDTH * (DISPLAY_TERM_HEIGHT - 1)
+            );
+
+            memset(
+                display_data->data.term_mode.term_chars + DISPLAY_TERM_WIDTH * (DISPLAY_TERM_HEIGHT - 1),
+                ' ',
+                DISPLAY_TERM_WIDTH
+            );
+
+            caret -= DISPLAY_TERM_WIDTH;
+        }
+
+        display_data->data.term_mode.caret = caret;
+    }
+}
 
 typedef struct {
     uint32_t regs[NUM_REGS];
@@ -101,7 +162,7 @@ bool g_clean_mode;
 bool g_clean_mode_enable_breakpoints;
 bool g_verbose_mode;
 
-void snd_to_device(DevicesData *devices_data, uint32_t port, uint32_t msg) {
+void snd_to_device(DevicesData *devices_data, DisplayData *display_data, uint32_t port, uint32_t msg) {
     if (g_debug_mode) printf("\nSENT 0x%08x to 0x%02x\n", msg, port);
     switch (port)
     {
@@ -111,13 +172,7 @@ void snd_to_device(DevicesData *devices_data, uint32_t port, uint32_t msg) {
         case 1: // Terminal IO device
             {
                 char c = msg;
-                if (g_verbose_mode) {
-                    printf("TERMIO OUT: '%c' (0x%02x)\n", c, c);
-                }
-                else {
-                    putc(c, stdout);
-                    fflush(stdout);
-                }
+                display_terminal_mode_putc(display_data, c);
             }
             break;
         
@@ -178,9 +233,9 @@ void update_devices(DevicesData *devices_data) {
 
     // Terminal IO device
     {
-        uint32_t input = get_input_nb();
+        uint32_t input = getch();
 
-        if (input) {
+        if ((32 <= input && input <= 127) || input == '\n' || input == '\t' || input == '\b') {
             devices_data->terminal_io_device_data->buffered_input = input;
         }
     }
@@ -357,7 +412,7 @@ void cpu_dump_ram(CpuData* cpu_data) {
     
 }
 
-int tick_cpu(CpuData *cpu_data, DevicesData *devices_data) {
+int tick_cpu(CpuData *cpu_data, DevicesData *devices_data, DisplayData *display_data) {
     uint32_t pc = cpu_data->regs[REG_PC];
     
     uint8_t opcode = cpu_get_ram(cpu_data, pc);
@@ -1074,7 +1129,7 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data) {
                 uint8_t port_reg = cpu_get_ram(cpu_data, pc + 1);
                 uint8_t msg_reg = cpu_get_ram(cpu_data, pc + 2);
 
-                snd_to_device(devices_data, cpu_get_reg(cpu_data, port_reg), cpu_get_reg(cpu_data, msg_reg));
+                snd_to_device(devices_data, display_data, cpu_get_reg(cpu_data, port_reg), cpu_get_reg(cpu_data, msg_reg));
             }
             break;
         
@@ -1104,6 +1159,67 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data) {
             break;
     }
     return 0;
+}
+
+void draw_box(int start_y, int start_x, int height, int width) {
+    mvhline(start_y, start_x, 0, width);
+    mvhline(start_y + height - 1, start_x, 0, width);
+
+    mvvline(start_y, start_x, 0, height);
+    mvvline(start_y, start_x + width - 1, 0, height);
+
+    mvaddch(start_y, start_x, ACS_ULCORNER);
+    mvaddch(start_y, start_x + width - 1, ACS_URCORNER);
+    mvaddch(start_y + height - 1, start_x, ACS_LLCORNER);
+    mvaddch(start_y + height - 1, start_x + width - 1, ACS_LRCORNER);
+}
+
+void tick_display(DisplayData *display_data, DevicesData *devices_data, const char *ips_string, int fps) {
+    clear();
+
+    int display_width = 0;
+    int display_height = 0;
+    
+    getmaxyx(stdscr, display_height, display_width);
+
+    switch (display_data->display_mode) {
+        case DISPLAY_MODE_TERMINAL:
+            {
+                if (display_width < DISPLAY_TERM_WIDTH + 2 || display_height < DISPLAY_TERM_HEIGHT + 2)
+                {
+                    mvprintw(
+                        0, 0,
+                        "Terminal is too small\n\tNeeded: %dx%d\n\tCurrent: %dx%d",
+                        DISPLAY_TERM_WIDTH, DISPLAY_TERM_HEIGHT,
+                        display_width, display_height
+                    );
+                }
+                else {
+                    for (int row = 0; row < DISPLAY_TERM_HEIGHT; row++) {
+                        wmove(stdscr, row + 1, 1);
+                        for (int col = 0; col < DISPLAY_TERM_WIDTH; col++) {
+                            int i = col + row * DISPLAY_TERM_WIDTH;
+
+                            char c = display_data->data.term_mode.term_chars[i];
+
+                            waddch(stdscr, c);
+                        }
+                    }
+
+                    draw_box(0, 0, DISPLAY_TERM_HEIGHT + 2, DISPLAY_TERM_WIDTH + 2);
+                }
+
+                break;
+            }
+    }
+
+    attron(A_REVERSE);
+    mvprintw(display_height - 3, 0, "INPUT CHAR: 0x%x ('%c')", devices_data->terminal_io_device_data->buffered_input, devices_data->terminal_io_device_data->buffered_input);
+    mvprintw(display_height - 2, 0, "FPS %d", fps);
+    mvprintw(display_height - 1, 0, "%s", ips_string);
+    attroff(A_REVERSE);
+
+    refresh();
 }
 
 int main(int argc, char *argv[]) {
@@ -1258,104 +1374,54 @@ int main(int argc, char *argv[]) {
 
     // MAIN LOOP
 
-    setup_terminal();
+    initscr();
+    noecho();
+    cbreak();
+    keypad(stdscr, TRUE);
+    nodelay(stdscr, TRUE);
+    curs_set(0);
 
-    puts(
-        "\nPress ENTER to start simulation\n"
-        "To start in DEBUG MODE, press 'd'\n"
-        "To start in CLEAN MODE, press 'c'\n"
-        "To start in CLEAN MODE WITH BREAKPOINTS, press 'C'\n"
-        "To start in VERBOSE MODE press 'v'"
-    );
-    fflush(stdout);
-
-    char mode_ran = getchar();
-
-    g_debug_mode = mode_ran == 'd';
-    g_clean_mode = mode_ran == 'c' || mode_ran == 'v' || mode_ran == 'C';
-    g_clean_mode_enable_breakpoints = mode_ran == 'C';
-    g_verbose_mode = mode_ran == 'v';
-
-    printf("\n------------------ STARTING SIMULATION ------------------\n");
-    int i = 0;
-    
     struct timespec last_ips_time, current_time;
     clock_gettime(CLOCK_MONOTONIC, &last_ips_time);
 
     uint64_t instruction_count = 0;
     uint32_t current_ips = 0;
 
-    if (g_debug_mode) system("clear");
+    char current_ips_text[32] = "SPEED: 0 I/s\n";
+
+    DisplayData* display_data = malloc(sizeof(DisplayData));
+
+    display_data->display_mode = DISPLAY_MODE_TERMINAL;
+    display_data->data.term_mode.caret = 0;
+
+    for (int i = 0; i < DISPLAY_TERM_WIDTH * DISPLAY_TERM_HEIGHT; i++) {
+        display_data->data.term_mode.term_chars[i] = ' ';
+    }
+
+    int frames = 0;
+    int fps = 0;
 
     while (true) {
-        if (g_debug_mode) {
-            cpu_dump_registers(cpu_data);
-            cpu_dump_ram(cpu_data);
-            if (cpu_data->regs[REG_PC] < cpu_data->ram_size) {
-                uint8_t opcode = cpu_get_ram(cpu_data, cpu_data->regs[REG_PC]);
-                char* alias = instruction_names[opcode];
-                if (alias == NULL) {
-                    printf("\nINST (0x%08x): 0x%02x\n", cpu_data->regs[REG_PC], opcode);
-                }
-                else {
-                    printf("\nINST (0x%08x): %s (0x%02x)\n", cpu_data->regs[REG_PC], alias, opcode);
-                }
-            }
-            else {
-                printf("\nPC OVERFLOW\n");
-            }
-            printf(
-                "TICK: %10d\n"
-                "IPS:  %10u\n"
-                "\nPress - Q to quit, B to continue to next breakpoint, SPACE to step ...\n", i, current_ips);
-
-            char c = getchar();
-
-            if (c == 'q') {
-                break;
-            }
-            else if (c == 'b') {
-                bool hard_exit = false; 
-                while (!cpu_data->breakpoint_triggered) {
-                    if (tick_cpu(cpu_data, devices_data) != 0) { hard_exit = true; break; };
-                    i++;
-                    instruction_count++;
-                };
-                if (hard_exit) break;
-                cpu_data->breakpoint_triggered = false;
-                continue;
-            }
-            else if (c == ' ') {}
-            else {
-                continue;
-            }
-        };
-
+        tick_display(display_data, devices_data, current_ips_text, fps);
+        frames++;
+        
         update_devices(devices_data);
 
-        if (!g_debug_mode) {
-            bool hard_exit = false; 
-            for (int si = 0; si < SUB_INSTRUCTION_COUNT; si++) {
-                if (tick_cpu(cpu_data, devices_data) != 0) { hard_exit = true; break; };
-                i++;
-                instruction_count++;
-                if (cpu_data->breakpoint_triggered && g_clean_mode_enable_breakpoints) {
-                    cpu_dump_registers(cpu_data);
-                    cpu_dump_ram(cpu_data);
-                    printf("\x1b[90mBREAKPOINT\x1b[0m\n");
-                    getchar();
-                    cpu_data->breakpoint_triggered = false;
-
-                    break;
-                }
-            }
-            if (hard_exit) break;
-        }
-        else {
-            if (tick_cpu(cpu_data, devices_data) != 0) break;
-            i++;
+        bool hard_exit = false; 
+        for (int si = 0; si < SUB_INSTRUCTION_COUNT; si++) {
+            if (tick_cpu(cpu_data, devices_data, display_data) != 0) { hard_exit = true; break; };
             instruction_count++;
+            if (cpu_data->breakpoint_triggered && g_clean_mode_enable_breakpoints) {
+                cpu_dump_registers(cpu_data);
+                cpu_dump_ram(cpu_data);
+                printf("\x1b[90mBREAKPOINT\x1b[0m\n");
+                getchar();
+                cpu_data->breakpoint_triggered = false;
+
+                break;
+            }
         }
+        if (hard_exit) break;
 
         // Calculate IPS once per second
         clock_gettime(CLOCK_MONOTONIC, &current_time);
@@ -1366,22 +1432,26 @@ int main(int argc, char *argv[]) {
             current_ips = (uint32_t)(instruction_count / elapsed_sec);
             instruction_count = 0;
             last_ips_time = current_time;
+            fps = frames;
+            frames = 0;
             if (!g_debug_mode && !g_clean_mode) {
                 if (current_ips > 10e9) {
-                    printf("SPEED: %.2f GI/s\n", current_ips / 1e9);
+                    snprintf(current_ips_text, sizeof(current_ips_text), "SPEED: %.2f GI/s\n", current_ips / 1e9);
                 }
                 else if (current_ips > 10e6) {
-                    printf("SPEED: %.2f MI/s\n", current_ips / 1e6);
+                    snprintf(current_ips_text, sizeof(current_ips_text), "SPEED: %.2f MI/s\n", current_ips / 1e9);
                 }
                 else if (current_ips > 10e3) {
-                    printf("SPEED: %.2f kI/s\n", current_ips / 1e3);
+                    snprintf(current_ips_text, sizeof(current_ips_text), "SPEED: %.2f KI/s\n", current_ips / 1e9);
                 }
                 else {
-                    printf("SPEED: %u I/s\n", current_ips);
+                    snprintf(current_ips_text, sizeof(current_ips_text), "SPEED: %.2f I/s\n", current_ips / 1e9);
                 }
             }
         }
 
-        process_sleep(10);
+        process_sleep(1e6 / 30);
     }
+
+    endwin();
 }

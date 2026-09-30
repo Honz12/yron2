@@ -7,12 +7,6 @@ ljmp 0x10 0x11
 
 ; DATA
 
-; ANSI COLORS
-    ERROR_ANSI: str "\e[31m\0"
-    RESET_ANSI: str "\e[0m\0"
-    BOLD_ANSI: str "\e[1m\0"
-    RESET_BOLD_ANSI: str "\e[22m\0"
-
 ; KERNEL MESSAGES
     KERNEL_PANIC_TEXT: str "\nKernel Panic\n\0"
     KERNEL_ERROR_TEXT: str "\nKernel Error\n\0"
@@ -58,7 +52,7 @@ syscall_int:
     
     ldi8 0x0e 3 ; GETC
     eq 0x0e 0x0f 0x0e
-    jnz .putc 0x0e
+    jnz .getc 0x0e
     
     ldi8 0x0e 4 ; DISK_READ
     eq 0x0e 0x0f 0x0e
@@ -107,24 +101,12 @@ syscall_int:
 kernel_panic_handler:
     push32 0x10
 
-    ldi32 0x10 ERROR_ANSI
-    call puts               ; print full string
-
-    ldi32 0x10 BOLD_ANSI
-    call puts               ; print full string
-
     ldi32 0x10 KERNEL_PANIC_TEXT
-    call puts               ; print full string
-
-    ldi32 0x10 RESET_BOLD_ANSI
     call puts               ; print full string
 
     pop32 0x10
     call puts               ; print full string
     push32 0x10
-
-    ldi32 0x10 RESET_ANSI
-    call puts               ; print full string
 
     ldi32 0x10 REBOOT_PROMPT_TEXT
     call puts               ; print full string
@@ -152,25 +134,13 @@ kernel_panic_handler:
 kernel_error_handler:
     push32 0x10
 
-    ldi32 0x10 ERROR_ANSI
-    call puts               ; print full string
-
-    ldi32 0x10 BOLD_ANSI
-    call puts               ; print full string
-
     ldi32 0x10 KERNEL_ERROR_TEXT
-    call puts               ; print full string
-
-    ldi32 0x10 RESET_BOLD_ANSI
     call puts               ; print full string
 
     pop32 0x10
     call putu
     call puts               ; print full string
     push32 0x10
-
-    ldi32 0x10 RESET_ANSI
-    call puts               ; print full string
 
     ldi32 0x10 ANY_TO_CONTINUE_PROMPT_TEXT
     call puts               ; print full string
