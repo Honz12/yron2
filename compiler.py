@@ -1421,12 +1421,15 @@ class CodeGenerator:
             return error
 
         self.append("jz ", else_label, " 0x0f")
+        
+        self.indent(1)
         error = self.generate(node.if_branch)
         if error:
             return error
 
         if node.else_branch is not None:
             self.append("jmp ", end_label)
+        
             self.append(else_label, ":")
             error = self.generate(node.else_branch)
             if error:
@@ -1434,6 +1437,8 @@ class CodeGenerator:
             self.append(end_label, ":")
         else:
             self.append(else_label, ":")
+        
+        self.indent(-1)
 
     def gen_WhileStatementNode(self, node: WhileStatementNode):
         self.label_counter += 1
@@ -1442,9 +1447,13 @@ class CodeGenerator:
         end_label = f"__while_end_{suffix}"
 
         self.append(start_label, ":")
+        
+        self.indent(1)
         error = self.resolve_expr_into_reg(node.condition, 0x0f)
         if error:
             return error
+        
+        self.append()
 
         self.append("jz ", end_label, " 0x0f")
         error = self.generate(node.block)
@@ -1452,6 +1461,8 @@ class CodeGenerator:
             return error
 
         self.append("jmp ", start_label)
+        
+        self.indent(-1)
         self.append(end_label, ":")
 
     def gen_BreakpointStatementNode(self, node: BreakpointStatementNode):

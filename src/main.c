@@ -14,7 +14,7 @@
 #define REG_MS 2
 #define INT_TABLE_START (uint32_t)1024
 #define INT_TABLE_SIZE (uint32_t)256 // 256 * 4 = 1024
-#define SUB_INSTRUCTION_COUNT 512 // RECOMENDED TO ADJUST FOR BETTER/WORSE COMPUTERS!
+#define SUB_INSTRUCTION_COUNT (1024 * 1024) // RECOMENDED TO ADJUST FOR BETTER/WORSE COMPUTERS!
 #define INT_GEN_ERR 0x00
 #define INT_INV_RAM_ADDR_ERR 0x01
 
@@ -100,6 +100,18 @@ typedef struct {
 } DevicesData;
 
 
+int get_input() {
+    int i = getch();
+
+    if (i == KEY_RESIZE) {
+        clear();
+        return -1;
+    }
+
+    return i;
+}
+
+
 int init_devices_data(DevicesData *devices_data) {
     devices_data->terminal_io_device_data = malloc(sizeof(TerminalIoDeviceData));
     devices_data->disk_io_device_data = malloc(sizeof(DiskIoDevice));
@@ -158,13 +170,7 @@ void cpu_set_ram(CpuData *data, uint32_t addr, uint8_t value) {
     return cpu_set_ram_raw(data, addr, value, false);
 }
 
-bool g_debug_mode;
-bool g_clean_mode;
-bool g_clean_mode_enable_breakpoints;
-bool g_verbose_mode;
-
 void snd_to_device(DevicesData *devices_data, DisplayData *display_data, uint32_t port, uint32_t msg) {
-    if (g_debug_mode) printf("\nSENT 0x%08x to 0x%02x\n", msg, port);
     switch (port)
     {
         case 0: // NULL device
@@ -234,7 +240,7 @@ void update_devices(DevicesData *devices_data) {
 
     // Terminal IO device
     {
-        uint32_t input = getch();
+        uint32_t input = get_input();
 
         if (input != ~(uint32_t)0) {
             devices_data->terminal_io_device_data->buffered_input = input;
@@ -351,7 +357,6 @@ int cpu_make_interrupt(CpuData *cpu_data, uint8_t value) {
         (cpu_get_ram(cpu_data, int_field_start + 2) << 16) | ((uint32_t)cpu_get_ram(cpu_data, int_field_start + 3) << 24);
 
         cpu_data->regs[REG_PC] = int_address;
-        if (g_debug_mode || g_clean_mode_enable_breakpoints || g_verbose_mode) printf("\n\x1b[90mINT 0x%02x called, IFS: 0x%08x, return pc: 0x%08x, jumping to 0x%08x\x1b[0m\n", value, int_field_start, return_pc, int_address);
     }
     else {
         printf("INVALID INTERRUPT 0x%02x\n", value);
@@ -418,10 +423,6 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data, DisplayData *display_
     uint32_t pc = cpu_data->regs[REG_PC];
     
     uint8_t opcode = cpu_get_ram(cpu_data, pc);
-
-    if (g_verbose_mode) {
-        printf("0x%08x: 0x%02x\n", pc, opcode);
-    }
 
     switch (opcode) {
         case 0x00: // NOP
@@ -1134,8 +1135,6 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data, DisplayData *display_
 
                 cpu_data->regs[REG_MS] = memory_segment;
                 cpu_data->regs[REG_PC] = program_counter;
-                
-                cpu_data->breakpoint_triggered = true;
             }
             break;
         
@@ -1160,19 +1159,15 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data, DisplayData *display_
                 cpu_set_reg(cpu_data, str_reg, rcv_from_device(devices_data, cpu_get_reg(cpu_data, port_reg)));
             }
             break;
-        
-        /*
+
         case 0xFF: // Breakpoint
-            cpu_data->regs[REG_PC]++;
+            beep();
             cpu_data->breakpoint_triggered = true;
             break;
-        */
 
         default:
-            if (g_debug_mode || g_clean_mode_enable_breakpoints || g_verbose_mode) printf("\nInstruction 0x%02x at 0x%08x (PC:0x%08x MS:0x%08x) is not supported\n", opcode, cpu_data->regs[REG_PC] + cpu_data->regs[REG_MS], cpu_data->regs[REG_PC], cpu_data->regs[REG_MS]);
-
+            beep();
             cpu_data->breakpoint_triggered = true;
-            cpu_data->regs[REG_PC]++;
             break;
     }
     return 0;
@@ -1191,7 +1186,7 @@ void draw_box(int start_y, int start_x, int height, int width) {
     mvaddch(start_y + height - 1, start_x + width - 1, ACS_LRCORNER);
 }
 
-void tick_display(DisplayData *display_data, DevicesData *devices_data, const char *ips_string, int fps) {
+void tick_display(DisplayData *display_data, CpuData *cpu_data, DevicesData *devices_data, int ips, int fps) {
     int display_width = 0;
     int display_height = 0;
     
@@ -1200,12 +1195,12 @@ void tick_display(DisplayData *display_data, DevicesData *devices_data, const ch
     switch (display_data->display_mode) {
         case DISPLAY_MODE_TERMINAL:
             {
-                if (display_width < DISPLAY_TERM_WIDTH + 2 || display_height < DISPLAY_TERM_HEIGHT + 2)
+                if (display_width < 120 || display_height < 64)
                 {
                     mvprintw(
                         0, 0,
                         "Terminal is too small\n\tNeeded: %dx%d\n\tCurrent: %dx%d",
-                        DISPLAY_TERM_WIDTH, DISPLAY_TERM_HEIGHT,
+                        120, 64,
                         display_width, display_height
                     );
                 }
@@ -1215,7 +1210,12 @@ void tick_display(DisplayData *display_data, DevicesData *devices_data, const ch
                         for (int col = 0; col < DISPLAY_TERM_WIDTH; col++) {
                             int i = col + row * DISPLAY_TERM_WIDTH;
 
-                            char c = display_data->data.term_mode.term_chars[i];
+                            unsigned char c = display_data->data.term_mode.term_chars[i];
+
+                            if (31 >= c || c >= 128) {
+                                c = '?';
+                            }
+
                             if (i == display_data->data.term_mode.caret) {
                                 attron(A_REVERSE);
                                 waddch(stdscr, c);
@@ -1226,25 +1226,100 @@ void tick_display(DisplayData *display_data, DevicesData *devices_data, const ch
                             }
                         }
                     }
+                    
+                    attron(COLOR_PAIR(1));
 
                     draw_box(0, 0, DISPLAY_TERM_HEIGHT + 2, DISPLAY_TERM_WIDTH + 2);
                     attron(A_REVERSE);
                     mvwaddstr(stdscr, 0, 2, " Display 1 - TERMINAL 80x25 ");
                     attroff(A_REVERSE);
+
+                    draw_box(0, DISPLAY_TERM_WIDTH + 3, NUM_REGS + 2, 36);
+                    attron(A_REVERSE);
+                    mvprintw(0, DISPLAY_TERM_WIDTH + 5, " REG DUMP ");
+                    attroff(A_REVERSE);
+
+                    for (int r = 0; r < NUM_REGS; r++) {
+                        uint32_t val = cpu_data->regs[r];
+
+                        mvprintw(r + 1, DISPLAY_TERM_WIDTH + 5, "0x%02x | 0x%08x | %12d", r, val, val);
+                    }
+
+                    draw_box(DISPLAY_TERM_HEIGHT + 2, 0, 32 + 3, DISPLAY_TERM_WIDTH + 2);
+                    attron(A_REVERSE);
+                    mvwaddstr(stdscr, DISPLAY_TERM_HEIGHT + 2, 2, " RAM DUMP ");
+                    attroff(A_REVERSE);
+
+                    mvprintw(DISPLAY_TERM_HEIGHT + 3, 10, "00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f");
+
+                    for (int y = 0; y < 32; y++) {
+                        uint32_t line_start_addr = y * 16 + cpu_data->regs[REG_MS] + (cpu_data->regs[REG_PC] / 64) * 64;
+
+                        mvprintw(y + DISPLAY_TERM_HEIGHT + 4, 1, "%08x", line_start_addr);
+
+                        attroff(COLOR_PAIR(1));
+
+                        for (int x = 0; x < 16; x++) {
+                            uint32_t addr = line_start_addr + x;
+
+                            if (addr < cpu_data->ram_size) {
+                                uint8_t byte = cpu_data->ram[addr];
+
+                                attron(COLOR_PAIR(2));
+                                if (addr == cpu_data->regs[REG_PC] + cpu_data->regs[REG_MS]) {
+                                    attron(A_REVERSE);
+                                    mvprintw(y + DISPLAY_TERM_HEIGHT + 4, x * 3 + 10, "%02x", byte);
+                                    attroff(A_REVERSE);
+                                }
+                                else {
+                                    mvprintw(y + DISPLAY_TERM_HEIGHT + 4, x * 3 + 10, "%02x", byte);
+                                }
+
+                                if (32 <= byte && byte < 128) {
+                                    mvprintw(y + DISPLAY_TERM_HEIGHT + 4, x + 10 + 16 * 3, "%c", byte);
+                                }
+                                else {
+                                    attroff(COLOR_PAIR(2));
+                                    mvprintw(y + DISPLAY_TERM_HEIGHT + 4, x + 10 + 16 * 3, ".");
+                                    attron(COLOR_PAIR(2));
+                                }
+
+                                attroff(COLOR_PAIR(2));
+                            }
+                        }
+
+                        attron(COLOR_PAIR(1));
+                    }
+
+                    draw_box(NUM_REGS + 2, DISPLAY_TERM_WIDTH + 3, (DISPLAY_TERM_HEIGHT + 2 + 32 + 3) - (NUM_REGS + 2), 36);
+                    attron(A_REVERSE);
+                    mvprintw(NUM_REGS + 2, DISPLAY_TERM_WIDTH + 5, " OTHER INFO ");
+                    attroff(A_REVERSE);
+
+                    char* status_text = "Running...";
+
+                    if (cpu_data->breakpoint_triggered) {
+                        status_text = "Paused, press ANY...";
+                    }
+
+                    mvprintw(NUM_REGS + 3, DISPLAY_TERM_WIDTH + 4, "STATUS: %-26s", status_text);
+                    mvprintw(NUM_REGS + 4, DISPLAY_TERM_WIDTH + 4, "FPS: %-29d", fps);
+                    mvprintw(NUM_REGS + 5, DISPLAY_TERM_WIDTH + 4, "IPS: %-29d", ips);
+
+                    attroff(COLOR_PAIR(1));
                 }
 
                 break;
             }
     }
 
-    mvprintw(display_height - 3, 0, "INPUT CHAR 0x%08x ('%c')     ", devices_data->terminal_io_device_data->buffered_input, devices_data->terminal_io_device_data->buffered_input);
-    mvprintw(display_height - 2, 0, "FPS %d          ", fps);
-    mvprintw(display_height - 1, 0, "%s              ", ips_string);
+    attron(COLOR_PAIR(1));
 
     refresh();
 }
 
 int main(int argc, char *argv[]) {
+
     printf("\x1b]0;YRON2 CPU VM\x07");
 
     printf("YRON2\n");
@@ -1336,13 +1411,21 @@ int main(int argc, char *argv[]) {
     nodelay(stdscr, TRUE);
     curs_set(0);
 
+    if (has_colors() == false) {
+        endwin();
+        printf("Your terminal does not support color\n");
+        return 1;
+    }
+    start_color();
+
+    init_pair(1, COLOR_CYAN, COLOR_BLACK);
+    init_pair(2, COLOR_YELLOW, COLOR_BLACK);
+
     struct timespec last_ips_time, current_time;
     clock_gettime(CLOCK_MONOTONIC, &last_ips_time);
 
     uint64_t instruction_count = 0;
     uint32_t current_ips = 0;
-
-    char current_ips_text[32] = "SPEED: 0 I/s\n";
 
     DisplayData* display_data = malloc(sizeof(DisplayData));
 
@@ -1360,26 +1443,22 @@ int main(int argc, char *argv[]) {
         struct timespec loop_start, loop_end;
         clock_gettime(CLOCK_MONOTONIC, &loop_start);
 
-        tick_display(display_data, devices_data, current_ips_text, fps);
+        tick_display(display_data, cpu_data, devices_data, current_ips, fps);
         frames++;
-        
-        update_devices(devices_data);
 
-        bool hard_exit = false; 
         for (int si = 0; si < SUB_INSTRUCTION_COUNT; si++) {
-            if (tick_cpu(cpu_data, devices_data, display_data) != 0) { hard_exit = true; break; };
-            instruction_count++;
-            if (cpu_data->breakpoint_triggered && g_clean_mode_enable_breakpoints) {
-                cpu_dump_registers(cpu_data);
-                cpu_dump_ram(cpu_data);
-                printf("\x1b[90mBREAKPOINT\x1b[0m\n");
-                getchar();
-                cpu_data->breakpoint_triggered = false;
-
+            if (cpu_data->breakpoint_triggered) {
+                if (get_input() != 0xffffffff) {
+                    cpu_data->breakpoint_triggered = false;
+                    cpu_data->regs[REG_PC]++;
+                }
                 break;
             }
+            tick_cpu(cpu_data, devices_data, display_data);
+            instruction_count++;
         }
-        if (hard_exit) break;
+        
+        update_devices(devices_data);
 
         // Calculate IPS once per second
         clock_gettime(CLOCK_MONOTONIC, &current_time);
@@ -1392,20 +1471,6 @@ int main(int argc, char *argv[]) {
             last_ips_time = current_time;
             fps = frames;
             frames = 0;
-            if (!g_debug_mode && !g_clean_mode) {
-                if (current_ips > 10e10) {
-                    snprintf(current_ips_text, sizeof(current_ips_text), "SPEED: %.2f GI/s\n", current_ips / 1e9);
-                }
-                else if (current_ips > 10e7) {
-                    snprintf(current_ips_text, sizeof(current_ips_text), "SPEED: %.2f MI/s\n", current_ips / 1e6);
-                }
-                else if (current_ips > 10e4) {
-                    snprintf(current_ips_text, sizeof(current_ips_text), "SPEED: %.2f kI/s\n", current_ips / 1e3);
-                }
-                else {
-                    snprintf(current_ips_text, sizeof(current_ips_text), "SPEED: %d I/s\n", current_ips);
-                }
-            }
         }
         
         // Measure elapsed time of this loop iteration

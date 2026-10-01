@@ -36,11 +36,14 @@ putu:
 getc:
     push32 0x0f
     ldi8 0x0f 3
+
     push32 0x10
     int 0x11
     mov 0x10 0x1f
+
     pop32 0x10
     pop32 0x0f
+    
     ret
 
 disk_read:
@@ -153,7 +156,6 @@ puth:
 ; 0x12 - ARG - num bytes
 ;
 copy_mem:
-    d8 0xff;
     push32 0x10
     push32 0x11
     push32 0x12

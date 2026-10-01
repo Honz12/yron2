@@ -73,7 +73,7 @@ func fs_analyze_disk() {
 /* Returns the next section from the file table. */
 func fs_get_continuing_section(u32 from_section) {
     if (from_section >= disk_section_count) {
-        puts("\e[33;1mWARN: Tried to get invalid sector continuation in file table.\e[0m\nPress any to continue ...\n");
+        puts("WARN: Tried to get invalid sector continuation in file table.\nPress any to continue ...\n");
         getc();
         return 0;
     }
@@ -104,7 +104,9 @@ func fs_get_file_occupying(u32 start_section) {
 
 /* Entry point */
 func main() {
-    puts("\nWelcome to FungOS\n(C) Jan Parik (Honz12 on github) 2026\n");
+    puts("Welcome to FungOS\n(C) Jan Parik (Honz12 on github) 2026\n");
+
+    breakpoint;
 
     disk_name = alc(17);
 
@@ -126,11 +128,9 @@ func main() {
     putu(disk_first_free_section);
     puts("\n\n");
 
-    puts(".ROOT size (sections): ");
+    puts(".ROOT size (sections): \n");
     putu(fs_get_file_occupying(disk_dot_root_pointer));
     putc('\n');
 
-    while (1) {
-        putc(getc());
-    }
+    puts("HELLO\n");
 }

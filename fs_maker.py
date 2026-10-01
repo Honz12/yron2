@@ -191,6 +191,8 @@ class FsDirectory:
         data = []
 
         for f in self.files:
+            if f.file_name == ".ROOT":
+                f.size = len(self.files) * 32
             data += list(f.get_bytes())
         
         return bytes(data)
