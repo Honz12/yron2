@@ -14,7 +14,7 @@
 #define REG_MS 2
 #define INT_TABLE_START (uint32_t)1024
 #define INT_TABLE_SIZE (uint32_t)256 // 256 * 4 = 1024
-#define SUB_INSTRUCTION_COUNT (1024 * 16) // RECOMENDED TO ADJUST FOR BETTER/WORSE COMPUTERS!
+#define SUB_INSTRUCTION_COUNT 512 // RECOMENDED TO ADJUST FOR BETTER/WORSE COMPUTERS!
 #define INT_GEN_ERR 0x00
 #define INT_INV_RAM_ADDR_ERR 0x01
 
@@ -1237,6 +1237,7 @@ void tick_display(DisplayData *display_data, DevicesData *devices_data, const ch
             }
     }
 
+    mvprintw(display_height - 3, 0, "INPUT CHAR 0x%08x ('%c')     ", devices_data->terminal_io_device_data->buffered_input, devices_data->terminal_io_device_data->buffered_input);
     mvprintw(display_height - 2, 0, "FPS %d          ", fps);
     mvprintw(display_height - 1, 0, "%s              ", ips_string);
 
@@ -1356,6 +1357,9 @@ int main(int argc, char *argv[]) {
     int fps = 0;
 
     while (true) {
+        struct timespec loop_start, loop_end;
+        clock_gettime(CLOCK_MONOTONIC, &loop_start);
+
         tick_display(display_data, devices_data, current_ips_text, fps);
         frames++;
         
@@ -1396,15 +1400,27 @@ int main(int argc, char *argv[]) {
                     snprintf(current_ips_text, sizeof(current_ips_text), "SPEED: %.2f MI/s\n", current_ips / 1e6);
                 }
                 else if (current_ips > 10e4) {
-                    snprintf(current_ips_text, sizeof(current_ips_text), "SPEED: %.2f KI/s\n", current_ips / 1e3);
+                    snprintf(current_ips_text, sizeof(current_ips_text), "SPEED: %.2f kI/s\n", current_ips / 1e3);
                 }
                 else {
                     snprintf(current_ips_text, sizeof(current_ips_text), "SPEED: %d I/s\n", current_ips);
                 }
             }
         }
+        
+        // Measure elapsed time of this loop iteration
+        clock_gettime(CLOCK_MONOTONIC, &loop_end);
+        double loop_duration_us = (loop_end.tv_sec - loop_start.tv_sec) * 1e6 + 
+                                  (loop_end.tv_nsec - loop_start.tv_nsec) / 1e3;
 
-        process_sleep(1e6 / 60);
+        // Target frame time in microseconds (1 second / 60)
+        double target_frame_us = 1e6 / 60.0;
+        double sleep_time_us = target_frame_us - loop_duration_us;
+
+        // Only sleep if we haven't already exceeded our target time
+        if (sleep_time_us > 0) {
+            process_sleep(sleep_time_us);
+        }
     }
 
     endwin();

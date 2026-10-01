@@ -129,4 +129,8 @@ func main() {
     puts(".ROOT size (sections): ");
     putu(fs_get_file_occupying(disk_dot_root_pointer));
     putc('\n');
+
+    while (1) {
+        putc(getc());
+    }
 }

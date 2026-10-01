@@ -1350,7 +1350,7 @@ class CodeGenerator:
             self.append("ldi32 ", hex(reg), " ", hex(len(self.allocator_bytes) + OPT_VAR_START_ADDR))
             self.allocator_bytes += [((node.cells[i].number if isinstance(node.cells[i], LiteralIntNode) else 0x00) if i < len(node.cells) else 0x00) for i in range(space.number)]
         elif isinstance(node, UnaryOpNode):
-            self.resolve_expr_into_reg(node.value)
+            self.resolve_expr_into_reg(node.value, reg)
             self.append(f"{"inc" if node.optok.t == TT_INC else "dec"} ", hex(reg))
         else:
             return CompilerError(f"CODE GEN - AST node {type(node).__name__} can't be an expression.", node.start_pos)
