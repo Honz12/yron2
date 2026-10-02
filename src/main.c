@@ -22,7 +22,10 @@
 #define DISPLAY_TERM_HEIGHT 25
 
 const char *menu_options[] = {
-    "Exit",
+    "  Exit  ",
+    " TERM 1 ",
+    "Reg Dump",
+    "RAM Dump",
 };
 const int mopt_c = sizeof(menu_options) / sizeof(char *);
 
@@ -35,7 +38,9 @@ typedef struct {
     int window_selected;
 
     WINDOW* options_window;
+    WINDOW* display_window;
     int option_w_selected;
+    int menu_open;
 
     bool should_exit;
 
@@ -44,11 +49,6 @@ typedef struct {
             int caret;
             int ram_dump_offset;
             unsigned char term_chars[DISPLAY_TERM_WIDTH * DISPLAY_TERM_HEIGHT];
-
-            WINDOW* display_window;
-            WINDOW* reg_dump_window;
-            WINDOW* ram_dump_window;
-            WINDOW* misc_window;
         } term_mode;
     } data;
 } DisplayData;
@@ -72,7 +72,8 @@ void init_display_data(DisplayData *display_data) {
         display_data->data.term_mode.term_chars[i] = ' ';
     }
 
-    display_data->data.term_mode.display_window = newwin(terminal_window_h, terminal_window_w, 3, 0);
+    display_data->display_window = newwin(terminal_window_h, terminal_window_w, 3, 0);
+	display_data->menu_open = 0;
 }
 
 void display_terminal_mode_putc(DisplayData *display_data, char c) {
@@ -167,6 +168,13 @@ int get_input(DisplayData *display_data) {
             switch (display_data->option_w_selected) {
                 case 0:
                     display_data->should_exit = true;
+                    break;
+                case 1:
+                	display_data->menu_open = 0;
+                case 2:
+                	display_data->menu_open = 1;
+                case 3:
+                	display_data->menu_open = 2;
             }
         }
         
@@ -1187,28 +1195,35 @@ void tick_display(DisplayData *display_data, CpuData *cpu_data, DevicesData *dev
     
     getmaxyx(stdscr, display_height, display_width);
 
-    switch (display_data->display_mode) {
-        case DISPLAY_MODE_TERMINAL:
-            {
-                display_data->window_selected %= 2;
+    if (display_data->menu_open == 0) {
+    	switch (display_data->display_mode) {
+        	case DISPLAY_MODE_TERMINAL:
+            	{
+                	display_data->window_selected %= 2;
 
-                WINDOW *terminal_w = display_data->data.term_mode.display_window;
+	                WINDOW *terminal_w = display_data->display_window;
 
-                for (int y = 0; y < DISPLAY_TERM_HEIGHT; y++) {
-                    wmove(terminal_w, 1 + y, 1);
-                    for (int x = 0; x < DISPLAY_TERM_WIDTH; x++) {
-                        waddch(terminal_w, display_data->data.term_mode.term_chars[x + y * DISPLAY_TERM_WIDTH]);
-                    }
-                }
+	                for (int y = 0; y < DISPLAY_TERM_HEIGHT; y++) {
+    	                wmove(terminal_w, 1 + y, 1);
+        	            for (int x = 0; x < DISPLAY_TERM_WIDTH; x++) {
+            	            waddch(terminal_w, display_data->data.term_mode.term_chars[x + y * DISPLAY_TERM_WIDTH]);
+                	    }
+                	}
 
-                if (display_data->window_selected == 1) wattron(terminal_w, COLOR_PAIR(1));
-                box(terminal_w, 0, 0);
-                if (display_data->window_selected == 1) wattroff(terminal_w, COLOR_PAIR(1));
+					wrefresh(terminal_w);
 
-                wrefresh(terminal_w);
+					break;
+            	}
+    	}
+    }
 
-                break;
-            }
+    if (display_data->window_selected == 1) {
+    	wattron(display_data->display_window, COLOR_PAIR(1));
+    	box(display_data->display_window, 0, 0);
+    	wattroff(display_data->display_window, COLOR_PAIR(1));
+    }
+    else {
+    	box(display_data->display_window, 0, 0);
     }
 
     WINDOW *menu_bar_w = display_data->options_window;
@@ -1218,12 +1233,12 @@ void tick_display(DisplayData *display_data, CpuData *cpu_data, DevicesData *dev
     box(menu_bar_w, 0, 0);
 
     for (int mopt = 0; mopt < mopt_c; mopt++) {
-        mvwprintw(menu_bar_w, 1, 2 + mopt * 8, "%s", menu_options[mopt]);
+        mvwprintw(menu_bar_w, 1, 2 + mopt * 10, "%s", menu_options[mopt]);
     }
 
     if (display_data->window_selected == 0) {
         wattron(menu_bar_w, A_REVERSE);
-        mvwprintw(menu_bar_w, 1, 2 + display_data->option_w_selected * 8, "%s", menu_options[display_data->option_w_selected]);
+        mvwprintw(menu_bar_w, 1, 2 + display_data->option_w_selected * 10, "%s", menu_options[display_data->option_w_selected]);
         wattroff(menu_bar_w, A_REVERSE);
 
         wattroff(menu_bar_w, COLOR_PAIR(1));
