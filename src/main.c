@@ -21,22 +21,59 @@
 #define DISPLAY_TERM_WIDTH 80
 #define DISPLAY_TERM_HEIGHT 25
 
+const char *menu_options[] = {
+    "Exit",
+};
+const int mopt_c = sizeof(menu_options) / sizeof(char *);
+
 typedef enum : char {
     DISPLAY_MODE_TERMINAL
 } DisplayMode;
 
 typedef struct {
     DisplayMode display_mode;
-    int menu_selected;
+    int window_selected;
+
+    WINDOW* options_window;
+    int option_w_selected;
+
+    bool should_exit;
 
     union {
         struct {
             int caret;
             int ram_dump_offset;
             unsigned char term_chars[DISPLAY_TERM_WIDTH * DISPLAY_TERM_HEIGHT];
+
+            WINDOW* display_window;
+            WINDOW* reg_dump_window;
+            WINDOW* ram_dump_window;
+            WINDOW* misc_window;
         } term_mode;
     } data;
 } DisplayData;
+
+void init_display_data(DisplayData *display_data) {
+    int terminal_window_w = (DISPLAY_TERM_WIDTH + 2);
+    int terminal_window_h = (DISPLAY_TERM_HEIGHT + 2);
+
+    display_data->display_mode = DISPLAY_MODE_TERMINAL;
+    display_data->window_selected = 0;
+
+    display_data->options_window = newwin(3, terminal_window_w, 0, 0);
+    display_data->option_w_selected = 0;
+
+    display_data->should_exit = false;
+
+    display_data->data.term_mode.caret = 0;
+    display_data->data.term_mode.ram_dump_offset = 0;
+
+    for (int i = 0; i < DISPLAY_TERM_WIDTH * DISPLAY_TERM_HEIGHT; i++) {
+        display_data->data.term_mode.term_chars[i] = ' ';
+    }
+
+    display_data->data.term_mode.display_window = newwin(terminal_window_h, terminal_window_w, 3, 0);
+}
 
 void display_terminal_mode_putc(DisplayData *display_data, char c) {
     if (display_data->display_mode == DISPLAY_MODE_TERMINAL) {
@@ -112,26 +149,37 @@ int get_input(DisplayData *display_data) {
 
     if (i == '\t') {
         clear();
-        display_data->menu_selected++;
+        display_data->window_selected++;
+        return -1;
+    }
+
+    if (display_data->window_selected == 0) {
+        if (i == KEY_LEFT) {
+            display_data->option_w_selected--;
+        }
+        if (i == KEY_RIGHT) {
+            display_data->option_w_selected++;
+        }
+        display_data->option_w_selected += mopt_c;
+        display_data->option_w_selected %= mopt_c;
+
+        if (i == '\n') {
+            switch (display_data->option_w_selected) {
+                case 0:
+                    display_data->should_exit = true;
+            }
+        }
+        
         return -1;
     }
 
     if (display_data->display_mode == DISPLAY_MODE_TERMINAL) {
-        if (display_data->menu_selected == 2) {
-            if (i == KEY_UP) {
-                display_data->data.term_mode.ram_dump_offset -= 16 * 2;
-            }
-            if (i == KEY_DOWN) {
-                display_data->data.term_mode.ram_dump_offset += 16 * 2;
-            }
-        }
-
-        if (display_data->menu_selected != 0) {
-            return -1;
+        if (display_data->window_selected == 1) {
+            return i;
         }
     }
 
-    return i;
+    return -1;
 }
 
 
@@ -140,28 +188,22 @@ int init_devices_data(DevicesData *devices_data) {
     devices_data->disk_io_device_data = malloc(sizeof(DiskIoDevice));
 
     if (devices_data->terminal_io_device_data == 0) {
-        printf("FAILED TO ALLOCATE TerminalIoDeviceData STRUCT\n");
         return 1;
     }
 
     if (devices_data->disk_io_device_data == 0) {
-        printf("FAILED TO ALLOCATE DiskIoDevice STRUCT\n");
         return 1;
     }
 
     devices_data->terminal_io_device_data->buffered_input = 0;
     devices_data->disk_io_device_data->address = 0;
-    printf("LOADING DISK\n");
     devices_data->disk_io_device_data->disk_file = fopen("disk.bin", "r+b");
     if (!devices_data->disk_io_device_data->disk_file) {
         devices_data->disk_io_device_data->disk_file = fopen("disk.bin", "w+b");
         if (!devices_data->disk_io_device_data->disk_file) {
-            printf("FAILED TO OPEN OR CREATE DISK FILE\n");
             return 1;
         }
     }
-    printf("DISK LOADED\n");
-
     return 0;
 }
 
@@ -381,65 +423,8 @@ int cpu_make_interrupt(CpuData *cpu_data, uint8_t value) {
 
         cpu_data->regs[REG_PC] = int_address;
     }
-    else {
-        printf("INVALID INTERRUPT 0x%02x\n", value);
-    }
 
     return 0;
-}
-
-void cpu_dump_registers(CpuData *cpu_data) {
-    printf("\n-------- CPU REG DUMP --------\n");
-    for (int i = 0; i < NUM_REGS; i++) {
-        if (i == REG_PC) {
-            printf("PC   : 0x%08x | %12d\n", cpu_data->regs[i], cpu_data->regs[i]);
-        }
-        else if (i == REG_SP) {
-            printf("SP   : 0x%08x | %12d\n", cpu_data->regs[i], cpu_data->regs[i]);
-        }
-        else if (i == REG_MS) {
-            printf("MS   : 0x%08x | %12d\n", cpu_data->regs[i], cpu_data->regs[i]);
-        }
-        else {
-            printf("0x%02x : 0x%08x | %12d\n", i, cpu_data->regs[i], cpu_data->regs[i]);
-        }
-    }
-}
-
-void cpu_dump_ram(CpuData* cpu_data) {
-    const uint8_t lines = 8;
-    const uint8_t bytes_per_line = 16;
-
-    uint32_t bytes_to_display = lines * bytes_per_line;
-    uint32_t raw_pc = cpu_data->regs[REG_PC] + cpu_data->regs[REG_MS];
-    uint32_t raw_ms = cpu_data->regs[REG_MS];
-    uint32_t raw_sp = cpu_data->regs[REG_SP];
-    uint8_t line = 0;
-
-    for (uint32_t i = 0; i < bytes_to_display; i += bytes_per_line)
-    {
-        uint32_t line_origin = (raw_pc / bytes_per_line - lines / 2) * bytes_per_line + i;
-
-        printf("0x%08x: \x1b[1m", line_origin);
-
-        for (uint8_t o = 0; o < bytes_per_line; o++)
-        {
-            uint32_t byte_addr = line_origin + o;
-            uint8_t byte = 0x00;
-
-            if (byte_addr < cpu_data->ram_size) {
-                byte = cpu_data->ram[byte_addr];
-            }
-
-            if (byte_addr == raw_pc) printf("\x1b[103;30m%02x\x1b[0;1m ", byte);
-            else if (byte_addr == raw_ms) printf("\x1b[105;30m%02x\x1b[0;1m ", byte);
-            else if (byte_addr == raw_sp) printf("\x1b[104;30m%02x\x1b[0;1m ", byte);
-            else printf("%02x ", byte);
-        }
-        printf("\x1b[0m\n");
-        line++;
-    }
-    
 }
 
 int tick_cpu(CpuData *cpu_data, DevicesData *devices_data, DisplayData *display_data) {
@@ -1196,19 +1181,6 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data, DisplayData *display_
     return 0;
 }
 
-void draw_box(int start_y, int start_x, int height, int width) {
-    mvhline(start_y, start_x, 0, width);
-    mvhline(start_y + height - 1, start_x, 0, width);
-
-    mvvline(start_y, start_x, 0, height);
-    mvvline(start_y, start_x + width - 1, 0, height);
-
-    mvaddch(start_y, start_x, ACS_ULCORNER);
-    mvaddch(start_y, start_x + width - 1, ACS_URCORNER);
-    mvaddch(start_y + height - 1, start_x, ACS_LLCORNER);
-    mvaddch(start_y + height - 1, start_x + width - 1, ACS_LRCORNER);
-}
-
 void tick_display(DisplayData *display_data, CpuData *cpu_data, DevicesData *devices_data, int ips, int fps) {
     int display_width = 0;
     int display_height = 0;
@@ -1218,172 +1190,58 @@ void tick_display(DisplayData *display_data, CpuData *cpu_data, DevicesData *dev
     switch (display_data->display_mode) {
         case DISPLAY_MODE_TERMINAL:
             {
-                display_data->menu_selected %= 4;
+                display_data->window_selected %= 2;
 
-                if (display_width < 120 || display_height < 64)
-                {
-                    mvprintw(
-                        0, 0,
-                        "Terminal is too small\n\tNeeded: %dx%d\n\tCurrent: %dx%d",
-                        120, 64,
-                        display_width, display_height
-                    );
+                WINDOW *terminal_w = display_data->data.term_mode.display_window;
+
+                for (int y = 0; y < DISPLAY_TERM_HEIGHT; y++) {
+                    wmove(terminal_w, 1 + y, 1);
+                    for (int x = 0; x < DISPLAY_TERM_WIDTH; x++) {
+                        waddch(terminal_w, display_data->data.term_mode.term_chars[x + y * DISPLAY_TERM_WIDTH]);
+                    }
                 }
-                else {
-                    for (int row = 0; row < DISPLAY_TERM_HEIGHT; row++) {
-                        wmove(stdscr, row + 1, 1);
-                        for (int col = 0; col < DISPLAY_TERM_WIDTH; col++) {
-                            int i = col + row * DISPLAY_TERM_WIDTH;
 
-                            unsigned char c = display_data->data.term_mode.term_chars[i];
+                if (display_data->window_selected == 1) wattron(terminal_w, COLOR_PAIR(1));
+                box(terminal_w, 0, 0);
+                if (display_data->window_selected == 1) wattroff(terminal_w, COLOR_PAIR(1));
 
-                            if (31 >= c || c >= 128) {
-                                c = '?';
-                            }
-
-                            if (i == display_data->data.term_mode.caret) {
-                                attron(A_REVERSE);
-                                waddch(stdscr, c);
-                                attroff(A_REVERSE);
-                            }
-                            else {
-                                waddch(stdscr, c);
-                            }
-                        }
-                    }
-                    
-                    attron(display_data->menu_selected != 0 ? COLOR_PAIR(1) : COLOR_PAIR(2));
-                    draw_box(0, 0, DISPLAY_TERM_HEIGHT + 2, DISPLAY_TERM_WIDTH + 2);
-                    attron(A_REVERSE);
-                    mvwaddstr(stdscr, 0, 2, " Display 1 - TERMINAL 80x25 ");
-                    attroff(A_REVERSE);
-                    attroff(display_data->menu_selected != 0 ? COLOR_PAIR(1) : COLOR_PAIR(2));
-
-                    attron(display_data->menu_selected != 1 ? COLOR_PAIR(1) : COLOR_PAIR(2));
-                    draw_box(0, DISPLAY_TERM_WIDTH + 3, NUM_REGS + 2, 36);
-                    attron(A_REVERSE);
-                    mvprintw(0, DISPLAY_TERM_WIDTH + 5, " REG DUMP ");
-                    attroff(A_REVERSE);
-
-                    for (int r = 0; r < NUM_REGS; r++) {
-                        uint32_t val = cpu_data->regs[r];
-
-                        mvprintw(r + 1, DISPLAY_TERM_WIDTH + 5, "0x%02x | 0x%08x | %12d", r, val, val);
-                    }
-                    attroff(display_data->menu_selected != 1 ? COLOR_PAIR(1) : COLOR_PAIR(2));
-
-                    attron(display_data->menu_selected != 2 ? COLOR_PAIR(1) : COLOR_PAIR(2));
-                    draw_box(DISPLAY_TERM_HEIGHT + 2, 0, 32 + 3, DISPLAY_TERM_WIDTH + 2);
-                    attron(A_REVERSE);
-                    mvwaddstr(stdscr, DISPLAY_TERM_HEIGHT + 2, 2, " RAM DUMP ");
-                    attroff(A_REVERSE);
-                    attroff(display_data->menu_selected != 2 ? COLOR_PAIR(1) : COLOR_PAIR(2));
-
-                    attron(COLOR_PAIR(1));
-
-                    mvprintw(DISPLAY_TERM_HEIGHT + 3, 10, "00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f");
-
-                    for (int y = 0; y < 32; y++) {
-                        uint32_t line_start_addr = y * 16 + display_data->data.term_mode.ram_dump_offset;
-
-                        mvprintw(y + DISPLAY_TERM_HEIGHT + 4, 1, "%08x", line_start_addr);
-
-                        attroff(COLOR_PAIR(1));
-
-                        for (int x = 0; x < 16; x++) {
-                            uint32_t addr = line_start_addr + x;
-
-                            if (addr < cpu_data->ram_size) {
-                                uint8_t byte = cpu_data->ram[addr];
-
-                                attron(COLOR_PAIR(2));
-                                if (addr == cpu_data->regs[REG_PC] + cpu_data->regs[REG_MS]) {
-                                    attron(A_REVERSE);
-                                    mvprintw(y + DISPLAY_TERM_HEIGHT + 4, x * 3 + 10, "%02x ", byte);
-                                    attroff(A_REVERSE);
-                                }
-                                else if (0x200 <= addr && addr < 0x400) {
-                                    attroff(COLOR_PAIR(2));
-                                    attron(COLOR_PAIR(4));
-                                    if ((addr - 0x200) / 4 % 2) {
-                                        attron(A_REVERSE);
-                                    }
-                                    mvprintw(y + DISPLAY_TERM_HEIGHT + 4, x * 3 + 10, "%02x ", byte);
-                                    if ((addr - 0x200) / 4 % 2) {
-                                        attroff(A_REVERSE);
-                                    }
-                                    attroff(COLOR_PAIR(4));
-                                    attron(COLOR_PAIR(2));
-                                }
-                                else {
-                                    mvprintw(y + DISPLAY_TERM_HEIGHT + 4, x * 3 + 10, "%02x ", byte);
-                                }
-
-                                if (32 <= byte && byte < 128) {
-                                    mvprintw(y + DISPLAY_TERM_HEIGHT + 4, x + 10 + 16 * 3, "%c", byte);
-                                }
-                                else {
-                                    attroff(COLOR_PAIR(2));
-                                    mvprintw(y + DISPLAY_TERM_HEIGHT + 4, x + 10 + 16 * 3, ".");
-                                    attron(COLOR_PAIR(2));
-                                }
-
-                                attroff(COLOR_PAIR(2));
-                            }
-                            else {
-                                attron(COLOR_PAIR(3));
-                                mvprintw(y + DISPLAY_TERM_HEIGHT + 4, x * 3 + 10, "..");
-                                mvprintw(y + DISPLAY_TERM_HEIGHT + 4, x + 10 + 16 * 3, ".");
-                                attroff(COLOR_PAIR(3));
-                            }
-                        }
-
-                        attron(COLOR_PAIR(1));
-                    }
-                    attroff(COLOR_PAIR(1));
-
-                    attron(display_data->menu_selected != 3 ? COLOR_PAIR(1) : COLOR_PAIR(2));
-                    draw_box(NUM_REGS + 2, DISPLAY_TERM_WIDTH + 3, (DISPLAY_TERM_HEIGHT + 2 + 32 + 3) - (NUM_REGS + 2), 36);
-                    attron(A_REVERSE);
-                    mvprintw(NUM_REGS + 2, DISPLAY_TERM_WIDTH + 5, " OTHER INFO ");
-                    attroff(A_REVERSE);
-
-                    char* status_text = "Running...";
-
-                    if (cpu_data->breakpoint_triggered) {
-                        status_text = "Paused, press ANY...";
-                    }
-
-                    mvprintw(NUM_REGS + 3, DISPLAY_TERM_WIDTH + 4, "STATUS: %-26s", status_text);
-                    mvprintw(NUM_REGS + 4, DISPLAY_TERM_WIDTH + 4, "FPS: %-29d", fps);
-                    mvprintw(NUM_REGS + 5, DISPLAY_TERM_WIDTH + 4, "IPS: %-29d", ips);
-
-                    attroff(display_data->menu_selected != 3 ? COLOR_PAIR(1) : COLOR_PAIR(2));
-                }
+                wrefresh(terminal_w);
 
                 break;
             }
     }
 
-    attron(COLOR_PAIR(1));
+    WINDOW *menu_bar_w = display_data->options_window;
+
+    if (display_data->window_selected == 0) wattron(menu_bar_w, COLOR_PAIR(1));
+
+    box(menu_bar_w, 0, 0);
+
+    for (int mopt = 0; mopt < mopt_c; mopt++) {
+        mvwprintw(menu_bar_w, 1, 2 + mopt * 8, "%s", menu_options[mopt]);
+    }
+
+    if (display_data->window_selected == 0) {
+        wattron(menu_bar_w, A_REVERSE);
+        mvwprintw(menu_bar_w, 1, 2 + display_data->option_w_selected * 8, "%s", menu_options[display_data->option_w_selected]);
+        wattroff(menu_bar_w, A_REVERSE);
+
+        wattroff(menu_bar_w, COLOR_PAIR(1));
+    }
+
+    wrefresh(menu_bar_w);
 
     refresh();
 }
 
 int main(int argc, char *argv[]) {
 
-    printf("\x1b]0;YRON2 CPU VM\x07");
-
-    printf("YRON2\n");
-
     CpuData *cpu_data = malloc(sizeof(CpuData));
 
     if (cpu_data == 0)
     {
-        printf("FAILED TO ALLOCATE CpuData STRUCT\n");
         return 1;
     }
-    printf("Allocated CpuData struct\n");
     
     // 64 MiB of RAM, for now
     cpu_data->ram_size = 1024 * 1024 * 64;
@@ -1392,25 +1250,20 @@ int main(int argc, char *argv[]) {
 
     if (cpu_data->ram == 0)
     {
-        printf("FAILED TO ALLOCATE RAM\n");
         return 1;
     }
-    printf("Allocated %d bytes of RAM\n", cpu_data->ram_size);
 
     DevicesData *devices_data = malloc(sizeof(DevicesData));
 
     if (devices_data == 0) {
-        printf("FAILED TO ALLOCATE DevicesData STRUCT\n");
         return 1;
     }
 
     {
-        printf("INITIALIZING DEVICES\n");
         int init_devices_data_return = init_devices_data(devices_data);
         if (init_devices_data_return) {
             return init_devices_data_return;
         }
-        printf("DEVICES INITIALIZED\n");
     }
 
     for (int i = 0; i < NUM_REGS; i++)
@@ -1422,8 +1275,6 @@ int main(int argc, char *argv[]) {
 
     // LOAD BINARY FILE
 
-    printf("\n------------------- LOADING ROM FILE -------------------\n");
-
     {
         char *bin_file_path = "rom.bin";
 
@@ -1433,25 +1284,19 @@ int main(int argc, char *argv[]) {
 
         FILE *bin_file = fopen(bin_file_path, "rb");
         if (!bin_file) {
-            printf("Failed to open binary file: %s\n", bin_file_path);
             return 1;
         }
 
         uint32_t file_size = get_file_size(bin_file_path);
 
-        printf("Reading file '%s' - size: %u bytes\n", bin_file_path, file_size);
-
         if (file_size > cpu_data->ram_size) {
-            printf("ROM size exceeds RAM capacity!\n");
             fclose(bin_file);
             return 1;
         }
 
         size_t read_bytes = fread(cpu_data->ram, 1, file_size, bin_file);
-        printf("Loaded %lu bytes into RAM.\n", read_bytes);
 
         fclose(bin_file);
-        printf("Closed file.\n");
     }
 
     // MAIN LOOP
@@ -1465,15 +1310,11 @@ int main(int argc, char *argv[]) {
 
     if (has_colors() == false) {
         endwin();
-        printf("Your terminal does not support color\n");
         return 1;
     }
     start_color();
 
-    init_pair(1, COLOR_CYAN, COLOR_BLACK);
-    init_pair(2, COLOR_YELLOW, COLOR_BLACK);
-    init_pair(3, COLOR_RED, COLOR_BLACK);
-    init_pair(4, COLOR_GREEN, COLOR_BLACK);
+    init_pair(1, COLOR_YELLOW, COLOR_BLACK);
 
     struct timespec last_ips_time, current_time;
     clock_gettime(CLOCK_MONOTONIC, &last_ips_time);
@@ -1483,15 +1324,7 @@ int main(int argc, char *argv[]) {
 
     DisplayData* display_data = malloc(sizeof(DisplayData));
 
-    display_data->display_mode = DISPLAY_MODE_TERMINAL;
-    display_data->menu_selected = 0;
-
-    display_data->data.term_mode.caret = 0;
-    display_data->data.term_mode.ram_dump_offset = 0;
-
-    for (int i = 0; i < DISPLAY_TERM_WIDTH * DISPLAY_TERM_HEIGHT; i++) {
-        display_data->data.term_mode.term_chars[i] = ' ';
-    }
+    init_display_data(display_data);
 
     int frames = 0;
     int fps = 0;
@@ -1538,6 +1371,10 @@ int main(int argc, char *argv[]) {
         // Target frame time in microseconds (1 second / 60)
         double target_frame_us = 1e6 / 60.0;
         double sleep_time_us = target_frame_us - loop_duration_us;
+
+        if (display_data->should_exit) {
+            break;
+        }
 
         // Only sleep if we haven't already exceeded our target time
         if (sleep_time_us > 0) {
