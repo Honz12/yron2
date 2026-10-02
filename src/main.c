@@ -73,7 +73,7 @@ void init_display_data(DisplayData *display_data) {
     }
 
     display_data->display_window = newwin(terminal_window_h, terminal_window_w, 3, 0);
-	display_data->menu_open = 0;
+    display_data->menu_open = 0;
 }
 
 void display_terminal_mode_putc(DisplayData *display_data, char c) {
@@ -165,16 +165,20 @@ int get_input(DisplayData *display_data) {
         display_data->option_w_selected %= mopt_c;
 
         if (i == '\n') {
+            wclear(display_data->display_window);
             switch (display_data->option_w_selected) {
                 case 0:
                     display_data->should_exit = true;
                     break;
                 case 1:
-                	display_data->menu_open = 0;
+                    display_data->menu_open = 0;
+                    break;
                 case 2:
-                	display_data->menu_open = 1;
+                    display_data->menu_open = 1;
+                    break;
                 case 3:
-                	display_data->menu_open = 2;
+                    display_data->menu_open = 2;
+                    break;
             }
         }
         
@@ -1194,37 +1198,29 @@ void tick_display(DisplayData *display_data, CpuData *cpu_data, DevicesData *dev
     int display_height = 0;
     
     getmaxyx(stdscr, display_height, display_width);
+    display_data->window_selected %= 2;
+
+    WINDOW *display_w = display_data->display_window;
 
     if (display_data->menu_open == 0) {
-    	switch (display_data->display_mode) {
-        	case DISPLAY_MODE_TERMINAL:
-            	{
-                	display_data->window_selected %= 2;
-
-	                WINDOW *terminal_w = display_data->display_window;
-
-	                for (int y = 0; y < DISPLAY_TERM_HEIGHT; y++) {
-    	                wmove(terminal_w, 1 + y, 1);
-        	            for (int x = 0; x < DISPLAY_TERM_WIDTH; x++) {
-            	            waddch(terminal_w, display_data->data.term_mode.term_chars[x + y * DISPLAY_TERM_WIDTH]);
-                	    }
-                	}
-
-					wrefresh(terminal_w);
-
-					break;
-            	}
-    	}
+        for (int y = 0; y < DISPLAY_TERM_HEIGHT; y++) {
+            wmove(display_w, 1 + y, 1);
+            for (int x = 0; x < DISPLAY_TERM_WIDTH; x++) {
+                waddch(display_w, display_data->data.term_mode.term_chars[x + y * DISPLAY_TERM_WIDTH]);
+            }
+        }
     }
 
     if (display_data->window_selected == 1) {
-    	wattron(display_data->display_window, COLOR_PAIR(1));
-    	box(display_data->display_window, 0, 0);
-    	wattroff(display_data->display_window, COLOR_PAIR(1));
+        wattron(display_w, COLOR_PAIR(1));
+        box(display_w, 0, 0);
+        wattroff(display_w, COLOR_PAIR(1));
     }
     else {
-    	box(display_data->display_window, 0, 0);
+        box(display_w, 0, 0);
     }
+
+    wrefresh(display_w);
 
     WINDOW *menu_bar_w = display_data->options_window;
 
@@ -1243,6 +1239,8 @@ void tick_display(DisplayData *display_data, CpuData *cpu_data, DevicesData *dev
 
         wattroff(menu_bar_w, COLOR_PAIR(1));
     }
+
+    //mvprintw(1, DISPLAY_TERM_WIDTH - 5, "%d", display_data->menu_open);
 
     wrefresh(menu_bar_w);
 
