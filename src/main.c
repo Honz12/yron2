@@ -14,7 +14,7 @@
 #define REG_MS 2
 #define INT_TABLE_START (uint32_t)1024
 #define INT_TABLE_SIZE (uint32_t)256 // 256 * 4 = 1024
-#define SUB_INSTRUCTION_COUNT (1024 * 1024) // RECOMENDED TO ADJUST FOR BETTER/WORSE COMPUTERS!
+#define SUB_INSTRUCTION_COUNT (1024) // RECOMENDED TO ADJUST FOR BETTER/WORSE COMPUTERS!
 #define INT_GEN_ERR 0x00
 #define INT_INV_RAM_ADDR_ERR 0x01
 
@@ -27,11 +27,13 @@ typedef enum : char {
 
 typedef struct {
     DisplayMode display_mode;
+    int menu_selected;
 
     union {
         struct {
             int caret;
-            char term_chars[DISPLAY_TERM_WIDTH * DISPLAY_TERM_HEIGHT];
+            int ram_dump_offset;
+            unsigned char term_chars[DISPLAY_TERM_WIDTH * DISPLAY_TERM_HEIGHT];
         } term_mode;
     } data;
 } DisplayData;
@@ -100,12 +102,33 @@ typedef struct {
 } DevicesData;
 
 
-int get_input() {
+int get_input(DisplayData *display_data) {
     int i = getch();
 
     if (i == KEY_RESIZE) {
         clear();
         return -1;
+    }
+
+    if (i == '\t') {
+        clear();
+        display_data->menu_selected++;
+        return -1;
+    }
+
+    if (display_data->display_mode == DISPLAY_MODE_TERMINAL) {
+        if (display_data->menu_selected == 2) {
+            if (i == KEY_UP) {
+                display_data->data.term_mode.ram_dump_offset -= 16 * 2;
+            }
+            if (i == KEY_DOWN) {
+                display_data->data.term_mode.ram_dump_offset += 16 * 2;
+            }
+        }
+
+        if (display_data->menu_selected != 0) {
+            return -1;
+        }
     }
 
     return i;
@@ -234,13 +257,13 @@ uint32_t rcv_from_device(DevicesData *devices_data, uint32_t port) {
 }
 
 
-void update_devices(DevicesData *devices_data) {
+void update_devices(DevicesData *devices_data, DisplayData *display_data) {
     // NULL device
     { }
 
     // Terminal IO device
     {
-        uint32_t input = get_input();
+        uint32_t input = get_input(display_data);
 
         if (input != ~(uint32_t)0) {
             devices_data->terminal_io_device_data->buffered_input = input;
@@ -1195,6 +1218,8 @@ void tick_display(DisplayData *display_data, CpuData *cpu_data, DevicesData *dev
     switch (display_data->display_mode) {
         case DISPLAY_MODE_TERMINAL:
             {
+                display_data->menu_selected %= 4;
+
                 if (display_width < 120 || display_height < 64)
                 {
                     mvprintw(
@@ -1227,13 +1252,14 @@ void tick_display(DisplayData *display_data, CpuData *cpu_data, DevicesData *dev
                         }
                     }
                     
-                    attron(COLOR_PAIR(1));
-
+                    attron(display_data->menu_selected != 0 ? COLOR_PAIR(1) : COLOR_PAIR(2));
                     draw_box(0, 0, DISPLAY_TERM_HEIGHT + 2, DISPLAY_TERM_WIDTH + 2);
                     attron(A_REVERSE);
                     mvwaddstr(stdscr, 0, 2, " Display 1 - TERMINAL 80x25 ");
                     attroff(A_REVERSE);
+                    attroff(display_data->menu_selected != 0 ? COLOR_PAIR(1) : COLOR_PAIR(2));
 
+                    attron(display_data->menu_selected != 1 ? COLOR_PAIR(1) : COLOR_PAIR(2));
                     draw_box(0, DISPLAY_TERM_WIDTH + 3, NUM_REGS + 2, 36);
                     attron(A_REVERSE);
                     mvprintw(0, DISPLAY_TERM_WIDTH + 5, " REG DUMP ");
@@ -1244,16 +1270,21 @@ void tick_display(DisplayData *display_data, CpuData *cpu_data, DevicesData *dev
 
                         mvprintw(r + 1, DISPLAY_TERM_WIDTH + 5, "0x%02x | 0x%08x | %12d", r, val, val);
                     }
+                    attroff(display_data->menu_selected != 1 ? COLOR_PAIR(1) : COLOR_PAIR(2));
 
+                    attron(display_data->menu_selected != 2 ? COLOR_PAIR(1) : COLOR_PAIR(2));
                     draw_box(DISPLAY_TERM_HEIGHT + 2, 0, 32 + 3, DISPLAY_TERM_WIDTH + 2);
                     attron(A_REVERSE);
                     mvwaddstr(stdscr, DISPLAY_TERM_HEIGHT + 2, 2, " RAM DUMP ");
                     attroff(A_REVERSE);
+                    attroff(display_data->menu_selected != 2 ? COLOR_PAIR(1) : COLOR_PAIR(2));
+
+                    attron(COLOR_PAIR(1));
 
                     mvprintw(DISPLAY_TERM_HEIGHT + 3, 10, "00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f");
 
                     for (int y = 0; y < 32; y++) {
-                        uint32_t line_start_addr = y * 16 + cpu_data->regs[REG_MS] + (cpu_data->regs[REG_PC] / 64) * 64;
+                        uint32_t line_start_addr = y * 16 + display_data->data.term_mode.ram_dump_offset;
 
                         mvprintw(y + DISPLAY_TERM_HEIGHT + 4, 1, "%08x", line_start_addr);
 
@@ -1268,11 +1299,24 @@ void tick_display(DisplayData *display_data, CpuData *cpu_data, DevicesData *dev
                                 attron(COLOR_PAIR(2));
                                 if (addr == cpu_data->regs[REG_PC] + cpu_data->regs[REG_MS]) {
                                     attron(A_REVERSE);
-                                    mvprintw(y + DISPLAY_TERM_HEIGHT + 4, x * 3 + 10, "%02x", byte);
+                                    mvprintw(y + DISPLAY_TERM_HEIGHT + 4, x * 3 + 10, "%02x ", byte);
                                     attroff(A_REVERSE);
                                 }
+                                else if (0x200 <= addr && addr < 0x400) {
+                                    attroff(COLOR_PAIR(2));
+                                    attron(COLOR_PAIR(4));
+                                    if ((addr - 0x200) / 4 % 2) {
+                                        attron(A_REVERSE);
+                                    }
+                                    mvprintw(y + DISPLAY_TERM_HEIGHT + 4, x * 3 + 10, "%02x ", byte);
+                                    if ((addr - 0x200) / 4 % 2) {
+                                        attroff(A_REVERSE);
+                                    }
+                                    attroff(COLOR_PAIR(4));
+                                    attron(COLOR_PAIR(2));
+                                }
                                 else {
-                                    mvprintw(y + DISPLAY_TERM_HEIGHT + 4, x * 3 + 10, "%02x", byte);
+                                    mvprintw(y + DISPLAY_TERM_HEIGHT + 4, x * 3 + 10, "%02x ", byte);
                                 }
 
                                 if (32 <= byte && byte < 128) {
@@ -1286,11 +1330,19 @@ void tick_display(DisplayData *display_data, CpuData *cpu_data, DevicesData *dev
 
                                 attroff(COLOR_PAIR(2));
                             }
+                            else {
+                                attron(COLOR_PAIR(3));
+                                mvprintw(y + DISPLAY_TERM_HEIGHT + 4, x * 3 + 10, "..");
+                                mvprintw(y + DISPLAY_TERM_HEIGHT + 4, x + 10 + 16 * 3, ".");
+                                attroff(COLOR_PAIR(3));
+                            }
                         }
 
                         attron(COLOR_PAIR(1));
                     }
+                    attroff(COLOR_PAIR(1));
 
+                    attron(display_data->menu_selected != 3 ? COLOR_PAIR(1) : COLOR_PAIR(2));
                     draw_box(NUM_REGS + 2, DISPLAY_TERM_WIDTH + 3, (DISPLAY_TERM_HEIGHT + 2 + 32 + 3) - (NUM_REGS + 2), 36);
                     attron(A_REVERSE);
                     mvprintw(NUM_REGS + 2, DISPLAY_TERM_WIDTH + 5, " OTHER INFO ");
@@ -1306,7 +1358,7 @@ void tick_display(DisplayData *display_data, CpuData *cpu_data, DevicesData *dev
                     mvprintw(NUM_REGS + 4, DISPLAY_TERM_WIDTH + 4, "FPS: %-29d", fps);
                     mvprintw(NUM_REGS + 5, DISPLAY_TERM_WIDTH + 4, "IPS: %-29d", ips);
 
-                    attroff(COLOR_PAIR(1));
+                    attroff(display_data->menu_selected != 3 ? COLOR_PAIR(1) : COLOR_PAIR(2));
                 }
 
                 break;
@@ -1420,6 +1472,8 @@ int main(int argc, char *argv[]) {
 
     init_pair(1, COLOR_CYAN, COLOR_BLACK);
     init_pair(2, COLOR_YELLOW, COLOR_BLACK);
+    init_pair(3, COLOR_RED, COLOR_BLACK);
+    init_pair(4, COLOR_GREEN, COLOR_BLACK);
 
     struct timespec last_ips_time, current_time;
     clock_gettime(CLOCK_MONOTONIC, &last_ips_time);
@@ -1430,7 +1484,10 @@ int main(int argc, char *argv[]) {
     DisplayData* display_data = malloc(sizeof(DisplayData));
 
     display_data->display_mode = DISPLAY_MODE_TERMINAL;
+    display_data->menu_selected = 0;
+
     display_data->data.term_mode.caret = 0;
+    display_data->data.term_mode.ram_dump_offset = 0;
 
     for (int i = 0; i < DISPLAY_TERM_WIDTH * DISPLAY_TERM_HEIGHT; i++) {
         display_data->data.term_mode.term_chars[i] = ' ';
@@ -1448,7 +1505,7 @@ int main(int argc, char *argv[]) {
 
         for (int si = 0; si < SUB_INSTRUCTION_COUNT; si++) {
             if (cpu_data->breakpoint_triggered) {
-                if (get_input() != 0xffffffff) {
+                if (get_input(display_data) != 0xffffffff) {
                     cpu_data->breakpoint_triggered = false;
                     cpu_data->regs[REG_PC]++;
                 }
@@ -1458,7 +1515,7 @@ int main(int argc, char *argv[]) {
             instruction_count++;
         }
         
-        update_devices(devices_data);
+        update_devices(devices_data, display_data);
 
         // Calculate IPS once per second
         clock_gettime(CLOCK_MONOTONIC, &current_time);
