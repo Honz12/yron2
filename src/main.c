@@ -157,14 +157,19 @@ int get_input(DisplayData *display_data) {
     if (display_data->window_selected == 0) {
         if (i == KEY_LEFT) {
             display_data->option_w_selected--;
+            goto stm_start;
         }
         if (i == KEY_RIGHT) {
             display_data->option_w_selected++;
+            goto stm_start;
         }
+		goto stm_end;
+		stm_start:
+        
         display_data->option_w_selected += mopt_c;
         display_data->option_w_selected %= mopt_c;
 
-        if (i == '\n') {
+        if (i == KEY_LEFT && i == KEY_RIGHT) {
             wclear(display_data->display_window);
             switch (display_data->option_w_selected) {
                 case 0:
@@ -181,6 +186,8 @@ int get_input(DisplayData *display_data) {
                     break;
             }
         }
+
+        stm_end:
         
         return -1;
     }
@@ -1232,11 +1239,11 @@ void tick_display(DisplayData *display_data, CpuData *cpu_data, DevicesData *dev
         mvwprintw(menu_bar_w, 1, 2 + mopt * 10, "%s", menu_options[mopt]);
     }
 
-    if (display_data->window_selected == 0) {
-        wattron(menu_bar_w, A_REVERSE);
-        mvwprintw(menu_bar_w, 1, 2 + display_data->option_w_selected * 10, "%s", menu_options[display_data->option_w_selected]);
-        wattroff(menu_bar_w, A_REVERSE);
-
+    wattron(menu_bar_w, A_REVERSE);
+    mvwprintw(menu_bar_w, 1, 2 + display_data->option_w_selected * 10, "%s", menu_options[display_data->option_w_selected]);
+    wattroff(menu_bar_w, A_REVERSE);
+    
+	if (display_data->window_selected == 0) {
         wattroff(menu_bar_w, COLOR_PAIR(1));
     }
 
