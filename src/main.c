@@ -15,7 +15,6 @@
 #define REG_MS 2
 #define INT_TABLE_START (uint32_t)1024
 #define INT_TABLE_SIZE (uint32_t)256 // 256 * 4 = 1024
-#define SUB_INSTRUCTION_COUNT (1024) // RECOMENDED TO ADJUST FOR BETTER/WORSE COMPUTERS!
 #define INT_GEN_ERR 0x00
 #define INT_INV_RAM_ADDR_ERR 0x01
 
@@ -30,8 +29,17 @@ const char *menu_options[] = {
     " TERM 1 ",
     "Reg Dump",
     "RAM Dump",
+    "Settings",
 };
 const int mopt_c = sizeof(menu_options) / sizeof(char *);
+
+const uint16_t cpu_speeds[] = {
+    1, 4, 16, 128, 256, 512, 1024
+};
+const uint8_t available_cpu_speed_count = sizeof(cpu_speeds) / sizeof(typeof(cpu_speeds[0]));
+
+const uint32_t ram_dump_bytes_per_line = 16;
+const uint32_t ram_dump_lines = DISPLAY_HEIGHT - 1;
 
 typedef enum : char {
     DISPLAY_MODE_TERMINAL
@@ -49,8 +57,13 @@ typedef struct {
     bool should_exit;
 
     struct {
-        uint32_t scroll;
-    } ram_dump_view_info;
+        uint32_t ram_view_scroll;
+        int settings_selected;
+        bool settings_editing;
+        struct {
+
+        } settings_values;
+    } inbuild_menus_info;
 
     union {
         struct {
@@ -132,6 +145,8 @@ typedef struct {
     uint32_t regs[NUM_REGS];
     uint8_t *ram;
     uint32_t ram_size;
+    uint32_t sub_inst_count;
+    bool single_step;
     bool breakpoint_triggered;
 } CpuData;
 
@@ -151,7 +166,7 @@ typedef struct {
 } DevicesData;
 
 
-int get_input(DisplayData *display_data) {
+int get_input(CpuData *cpu_data, DisplayData *display_data) {
     int i = getch();
 
     if (i == KEY_RESIZE) {
@@ -191,6 +206,9 @@ int get_input(DisplayData *display_data) {
                 case 3:
                     display_data->menu_open = 2;
                     break;
+                case 4:
+                    display_data->menu_open = 3;
+                    break;
             }
         }
 
@@ -203,12 +221,34 @@ int get_input(DisplayData *display_data) {
                 return i;
             }
         }
+        if (display_data->menu_open == 1) {
+            if (i == ' ') {
+                cpu_data->single_step = true;
+            }
+        }
         if (display_data->menu_open == 2) {
+            uint32_t *scroll = &display_data->inbuild_menus_info.ram_view_scroll;
+
+            const uint32_t total_lines = cpu_data->ram_size / ram_dump_bytes_per_line;
+            const uint32_t max_scroll = total_lines > ram_dump_lines ? total_lines - ram_dump_lines : 0;
+
             if (i == KEY_UP) {
-                if (display_data->ram_dump_view_info.scroll > 0) display_data->ram_dump_view_info.scroll--;
+                if (*scroll > 0) (*scroll)--;
             }
             if (i == KEY_DOWN) {
-                if (display_data->ram_dump_view_info.scroll < (uint32_t)-1) display_data->ram_dump_view_info.scroll++;
+                if (*scroll < max_scroll) (*scroll)++;
+            }
+            if (i == KEY_PPAGE) {
+                *scroll = *scroll > ram_dump_lines ? *scroll - ram_dump_lines : 0;
+            }
+            if (i == KEY_NPAGE) {
+                *scroll = *scroll + ram_dump_lines < max_scroll ? *scroll + ram_dump_lines : max_scroll;
+            }
+            if (i == ' ') {
+                cpu_data->single_step = true;
+            }
+            if (i == 'f' || i == 'F') {
+                *scroll = (cpu_data->regs[REG_PC] + cpu_data->regs[REG_MS]) / ram_dump_bytes_per_line;
             }
         }
     }
@@ -342,13 +382,13 @@ uint32_t rcv_from_device(DevicesData *devices_data, uint32_t port) {
 }
 
 
-void update_devices(DevicesData *devices_data, DisplayData *display_data) {
+void update_devices(CpuData *cpu_data, DevicesData *devices_data, DisplayData *display_data) {
     // NULL device
     { }
 
     // Terminal IO device
     {
-        uint32_t input = get_input(display_data);
+        uint32_t input = get_input(cpu_data, display_data);
 
         if (input != ~(uint32_t)0) {
             devices_data->terminal_io_device_data->buffered_input = input;
@@ -1253,8 +1293,11 @@ void tick_display(DisplayData *display_data, CpuData *cpu_data, DevicesData *dev
         mvwprintw(display_w, 1, 1, "REG    HEX VALUE    DEC VALUE");
         mvwprintw(display_w, 1, 1 + 35, "REG    HEX VALUE    DEC VALUE");
         for (int r = 0; r < NUM_REGS; r++) {
-            mvwprintw(display_w, 3 + r % (NUM_REGS / 2), 1 + r / (NUM_REGS / 2) * 35, "0x%02x   0x%08x   %12d", r, r, r);
+            uint32_t v = cpu_data->regs[r];
+            mvwprintw(display_w, 3 + r % (NUM_REGS / 2), 1 + r / (NUM_REGS / 2) * 35, "0x%02x   0x%08x   %12d", r, v, v);
         }
+
+        mvwprintw(display_w, DISPLAY_HEIGHT, 1, "SPACE to step the simulation");
 
         wattron(display_w, A_DIM);
         mvwhline(display_w, 2, 1, 0, 67);
@@ -1267,19 +1310,43 @@ void tick_display(DisplayData *display_data, CpuData *cpu_data, DevicesData *dev
         mvwvline(display_w, 1, 34, 0, NUM_REGS / 2 + 2);
     }
     else if (display_data->menu_open == 2) {
-        const uint32_t bytes_per_line = 16;
-        const uint32_t lines = DISPLAY_HEIGHT - 2;
+        for (int y = 0; y < ram_dump_lines; y++) {
+            uint32_t line_addr = (y + display_data->inbuild_menus_info.ram_view_scroll) * ram_dump_bytes_per_line;
+            mvwprintw(display_w, 1 + y, 1, "%08x :", line_addr);
 
-        for (int y = 0; y < lines; y++) {
-            uint32_t line_addr = (y + display_data->ram_dump_view_info.scroll) * bytes_per_line;
-            mvwprintw(display_w, 1 + y, 1, "0x%08x", line_addr);
+            for (int x = 0; x < ram_dump_bytes_per_line; x++) {
+                uint32_t byte_addr = line_addr + x;
 
-            for (int x = 0; x < bytes_per_line; x++) {
-                mvwprintw(display_w, 0, 0, "");
+                if (byte_addr == cpu_data->regs[REG_MS] + cpu_data->regs[REG_PC]) {
+                    wattron(display_w, A_REVERSE);
+                }
+
+                if (byte_addr < cpu_data->ram_size) {
+                    uint8_t byte = cpu_data->ram[byte_addr];
+                    mvwprintw(display_w, 1 + y, 12 + x * 3, "%02x", byte);
+                    if (32 <= byte && byte < 128) {
+                        mvwprintw(display_w, 1 + y, 12 + ram_dump_bytes_per_line * 3 + 1 + x, "%c", byte);
+                    }
+                    else {
+                        wattron(display_w, A_DIM);
+                        mvwprintw(display_w, 1 + y, 12 + ram_dump_bytes_per_line * 3 + 1 + x, ".");
+                        wattroff(display_w, A_DIM);
+                    }
+                }
+                else {
+                    mvwprintw(display_w, 1 + y, 12 + x * 3, "..");
+                    mvwprintw(display_w, 1 + y, 12 + ram_dump_bytes_per_line * 3 + 1 + x, ".");
+                }
+
+                if (byte_addr == cpu_data->regs[REG_MS] + cpu_data->regs[REG_PC]) {
+                    wattroff(display_w, A_REVERSE);
+                }
             }
         }
 
-        mvwhline(display_w, lines, 0, 0, DISPLAY_WIDTH);
+        mvwhline(display_w, ram_dump_lines, 0, 0, DISPLAY_WIDTH);
+
+        mvwprintw(display_w, DISPLAY_HEIGHT, 1, "SPACE to step the simulation");
     }
 
     box(display_w, 0, 0);
@@ -1357,7 +1424,8 @@ int main(int argc, char *argv[]) {
     }
     
     // 64 MiB of RAM, for now
-    cpu_data->ram_size = 1024 * 1024 * 64;
+    cpu_data->ram_size = 1024 * 64;
+    cpu_data->sub_inst_count = 1024;
     
     cpu_data->ram = malloc(cpu_data->ram_size);
 
@@ -1485,9 +1553,9 @@ int main(int argc, char *argv[]) {
         tick_display(display_data, cpu_data, devices_data, current_ips, fps);
         frames++;
 
-        for (int si = 0; si < SUB_INSTRUCTION_COUNT; si++) {
+        if (display_data->menu_open == 0 && display_data->window_selected == 1) for (int si = 0; si < cpu_data->sub_inst_count; si++) {
             if (cpu_data->breakpoint_triggered) {
-                if (get_input(display_data) != 0xffffffff) {
+                if (get_input(cpu_data, display_data) != 0xffffffff) {
                     cpu_data->breakpoint_triggered = false;
                     cpu_data->regs[REG_PC]++;
                 }
@@ -1496,8 +1564,13 @@ int main(int argc, char *argv[]) {
             tick_cpu(cpu_data, devices_data, display_data);
             instruction_count++;
         }
+        else if (cpu_data->single_step) {
+            tick_cpu(cpu_data, devices_data, display_data);
+            instruction_count++;
+            cpu_data->single_step = false;
+        }
         
-        update_devices(devices_data, display_data);
+        update_devices(cpu_data, devices_data, display_data);
 
         // Calculate IPS once per second
         clock_gettime(CLOCK_MONOTONIC, &current_time);
