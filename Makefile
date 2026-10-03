@@ -3,8 +3,8 @@ PYTHON=python
 
 .PHONY: run clean rm_cb os 
 
-build/exe: build/ src/main.c
-	$(CC) src/main.c -o build/exe -lncurses
+build/exe: build/ src/main.c src/helpers.c
+	$(CC) src/main.c src/helpers.c -o build/exe -lncurses
 
 build/:
 	mkdir build

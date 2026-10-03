@@ -21,8 +21,8 @@
 #define DISPLAY_TERM_WIDTH 80
 #define DISPLAY_TERM_HEIGHT 25
 
-#define DISPLAY_WIDTH 81
-#define DISPLAY_HEIGHT 25
+#define DISPLAY_WIDTH 120
+#define DISPLAY_HEIGHT 40
 
 const char *menu_options[] = {
     "  Exit  ",
@@ -62,7 +62,6 @@ void init_display_data(DisplayData *display_data) {
     display_data->display_mode = DISPLAY_MODE_TERMINAL;
     display_data->window_selected = 0;
 
-    puts("NEWWIN BAR");
     display_data->options_window = newwin(3, display_window_w, 0, 0);
     display_data->option_w_selected = 0;
 
@@ -70,11 +69,15 @@ void init_display_data(DisplayData *display_data) {
 
     display_data->data.term_mode.caret = 0;
 
-    for (int i = 0; i < DISPLAY_WIDTH * DISPLAY_HEIGHT; i++) {
-        display_data->data.term_mode.term_chars[i] = ' ';
-    }
+    // NOTE: DISPLAY_* is the full display size (e.g. for a future RGB display),
+    // DISPLAY_TERM_* is the size of the simulated terminal. term_chars backs
+    // the terminal, so it is sized by DISPLAY_TERM_* (as everywhere else:
+    // display_terminal_mode_putc and tick_display).
+    memset(
+        display_data->data.term_mode.term_chars, ' ',
+        sizeof display_data->data.term_mode.term_chars
+    );
 
-    puts("NEWWIN DISP");
     display_data->display_window = newwin(display_window_h, display_window_w, 3, 0);
     display_data->menu_open = 0;
 }
@@ -186,8 +189,6 @@ int get_input(DisplayData *display_data) {
             }
         }
 
-        stm_end:
-        
         return -1;
     }
 
@@ -206,19 +207,28 @@ int init_devices_data(DevicesData *devices_data) {
     devices_data->disk_io_device_data = malloc(sizeof(DiskIoDevice));
 
     if (devices_data->terminal_io_device_data == 0) {
+        free(devices_data->disk_io_device_data);
+        devices_data->disk_io_device_data = NULL;
         return 1;
     }
 
     if (devices_data->disk_io_device_data == 0) {
+        free(devices_data->terminal_io_device_data);
+        devices_data->terminal_io_device_data = NULL;
         return 1;
     }
 
     devices_data->terminal_io_device_data->buffered_input = 0;
+    devices_data->terminal_io_device_data->last_input = 0;
     devices_data->disk_io_device_data->address = 0;
     devices_data->disk_io_device_data->disk_file = fopen("disk.bin", "r+b");
     if (!devices_data->disk_io_device_data->disk_file) {
         devices_data->disk_io_device_data->disk_file = fopen("disk.bin", "w+b");
         if (!devices_data->disk_io_device_data->disk_file) {
+            free(devices_data->terminal_io_device_data);
+            devices_data->terminal_io_device_data = NULL;
+            free(devices_data->disk_io_device_data);
+            devices_data->disk_io_device_data = NULL;
             return 1;
         }
     }
@@ -348,8 +358,6 @@ int cpu_push_stack_uint8(CpuData *cpu_data, uint8_t value) {
 }
 
 int cpu_push_stack_uint16(CpuData *cpu_data, uint16_t value) {
-    uint32_t sp = cpu_data->regs[REG_SP];
-
     if (cpu_push_stack_uint8(cpu_data, value)) return 1;
     if (cpu_push_stack_uint8(cpu_data, value >> 8)) return 1;
 
@@ -357,8 +365,6 @@ int cpu_push_stack_uint16(CpuData *cpu_data, uint16_t value) {
 }
 
 int cpu_push_stack_uint32(CpuData *cpu_data, uint32_t value) {
-    uint32_t sp = cpu_data->regs[REG_SP];
-
     if (cpu_push_stack_uint8(cpu_data, value)) return 1;
     if (cpu_push_stack_uint8(cpu_data, value >> 8)) return 1;
     if (cpu_push_stack_uint8(cpu_data, value >> 16)) return 1;
@@ -1200,6 +1206,11 @@ int tick_cpu(CpuData *cpu_data, DevicesData *devices_data, DisplayData *display_
 }
 
 void tick_display(DisplayData *display_data, CpuData *cpu_data, DevicesData *devices_data, int ips, int fps) {
+    (void)cpu_data;
+    (void)devices_data;
+    (void)ips;
+    (void)fps;
+
     int display_width = 0;
     int display_height = 0;
     
@@ -1319,18 +1330,35 @@ int main(int argc, char *argv[]) {
 
     if (cpu_data->ram == 0)
     {
+        free(cpu_data);
+        return 1;
+    }
+
+    DisplayData* display_data = malloc(sizeof(DisplayData));
+
+    if (display_data == 0)
+    {
+        free(cpu_data->ram);
+        free(cpu_data);
         return 1;
     }
 
     DevicesData *devices_data = malloc(sizeof(DevicesData));
 
     if (devices_data == 0) {
+        free(display_data);
+        free(cpu_data->ram);
+        free(cpu_data);
         return 1;
     }
 
     {
         int init_devices_data_return = init_devices_data(devices_data);
         if (init_devices_data_return) {
+            free(display_data);
+            free(devices_data);
+            free(cpu_data->ram);
+            free(cpu_data);
             return init_devices_data_return;
         }
     }
@@ -1353,6 +1381,13 @@ int main(int argc, char *argv[]) {
 
         FILE *bin_file = fopen(bin_file_path, "rb");
         if (!bin_file) {
+            free(display_data);
+            free(devices_data->terminal_io_device_data);
+            fclose(devices_data->disk_io_device_data->disk_file);
+            free(devices_data->disk_io_device_data);
+            free(devices_data);
+            free(cpu_data->ram);
+            free(cpu_data);
             return 1;
         }
 
@@ -1360,10 +1395,17 @@ int main(int argc, char *argv[]) {
 
         if (file_size > cpu_data->ram_size) {
             fclose(bin_file);
+            free(display_data);
+            free(devices_data->terminal_io_device_data);
+            fclose(devices_data->disk_io_device_data->disk_file);
+            free(devices_data->disk_io_device_data);
+            free(devices_data);
+            free(cpu_data->ram);
+            free(cpu_data);
             return 1;
         }
 
-        size_t read_bytes = fread(cpu_data->ram, 1, file_size, bin_file);
+        fread(cpu_data->ram, 1, file_size, bin_file);
 
         fclose(bin_file);
     }
@@ -1379,6 +1421,13 @@ int main(int argc, char *argv[]) {
 
     if (has_colors() == false) {
         endwin();
+        free(display_data);
+        free(devices_data->terminal_io_device_data);
+        fclose(devices_data->disk_io_device_data->disk_file);
+        free(devices_data->disk_io_device_data);
+        free(devices_data);
+        free(cpu_data->ram);
+        free(cpu_data);
         return 1;
     }
     start_color();
@@ -1390,9 +1439,6 @@ int main(int argc, char *argv[]) {
 
     uint64_t instruction_count = 0;
     uint32_t current_ips = 0;
-
-    DisplayData* display_data = malloc(sizeof(DisplayData));
-    printf("0x%016x\n\r", display_data);
 
     init_display_data(display_data);
 
