@@ -157,19 +157,15 @@ int get_input(DisplayData *display_data) {
     if (display_data->window_selected == 0) {
         if (i == KEY_LEFT) {
             display_data->option_w_selected--;
-            goto stm_start;
         }
         if (i == KEY_RIGHT) {
             display_data->option_w_selected++;
-            goto stm_start;
         }
-		goto stm_end;
-		stm_start:
         
         display_data->option_w_selected += mopt_c;
         display_data->option_w_selected %= mopt_c;
 
-        if (i == KEY_LEFT && i == KEY_RIGHT) {
+        if (i == '\n') {
             wclear(display_data->display_window);
             switch (display_data->option_w_selected) {
                 case 0:
@@ -1209,6 +1205,10 @@ void tick_display(DisplayData *display_data, CpuData *cpu_data, DevicesData *dev
 
     WINDOW *display_w = display_data->display_window;
 
+    if (display_data->window_selected == 1) {
+        wattron(display_w, COLOR_PAIR(1));
+    }
+
     if (display_data->menu_open == 0) {
         for (int y = 0; y < DISPLAY_TERM_HEIGHT; y++) {
             wmove(display_w, 1 + y, 1);
@@ -1217,14 +1217,29 @@ void tick_display(DisplayData *display_data, CpuData *cpu_data, DevicesData *dev
             }
         }
     }
+    else if (display_data->menu_open == 1) {
+        mvwprintw(display_w, 1, 1, "REG    HEX VALUE    DEC VALUE");
+        mvwprintw(display_w, 1, 1 + 35, "REG    HEX VALUE    DEC VALUE");
+        for (int r = 0; r < NUM_REGS; r++) {
+            mvwprintw(display_w, 3 + r % (NUM_REGS / 2), 1 + r / (NUM_REGS / 2) * 35, "0x%02x   0x%08x   %12d", r, r, r);
+        }
+
+        wattron(display_w, A_DIM);
+        mvwhline(display_w, 2, 1, 0, 67);
+        mvwvline(display_w, 1, 6, 0, NUM_REGS / 2 + 2);
+        mvwvline(display_w, 1, 19, 0, NUM_REGS / 2 + 2);
+        mvwvline(display_w, 1, 35 + 6, 0, NUM_REGS / 2 + 2);
+        mvwvline(display_w, 1, 35 + 19, 0, NUM_REGS / 2 + 2);
+        wattroff(display_w, A_DIM);
+
+        mvwvline(display_w, 1, 34, 0, NUM_REGS / 2 + 2);
+        mvwvline(display_w, 1, 35 + 32, 0, NUM_REGS / 2 + 2);
+    }
+
+    box(display_w, 0, 0);
 
     if (display_data->window_selected == 1) {
-        wattron(display_w, COLOR_PAIR(1));
-        box(display_w, 0, 0);
         wattroff(display_w, COLOR_PAIR(1));
-    }
-    else {
-        box(display_w, 0, 0);
     }
 
     wrefresh(display_w);
@@ -1243,7 +1258,7 @@ void tick_display(DisplayData *display_data, CpuData *cpu_data, DevicesData *dev
     mvwprintw(menu_bar_w, 1, 2 + display_data->option_w_selected * 10, "%s", menu_options[display_data->option_w_selected]);
     wattroff(menu_bar_w, A_REVERSE);
     
-	if (display_data->window_selected == 0) {
+    if (display_data->window_selected == 0) {
         wattroff(menu_bar_w, COLOR_PAIR(1));
     }
 
