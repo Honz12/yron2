@@ -21,6 +21,9 @@
 #define DISPLAY_TERM_WIDTH 80
 #define DISPLAY_TERM_HEIGHT 25
 
+#define DISPLAY_WIDTH 81
+#define DISPLAY_HEIGHT 25
+
 const char *menu_options[] = {
     "  Exit  ",
     " TERM 1 ",
@@ -47,32 +50,32 @@ typedef struct {
     union {
         struct {
             int caret;
-            int ram_dump_offset;
             unsigned char term_chars[DISPLAY_TERM_WIDTH * DISPLAY_TERM_HEIGHT];
         } term_mode;
     } data;
 } DisplayData;
 
 void init_display_data(DisplayData *display_data) {
-    int terminal_window_w = (DISPLAY_TERM_WIDTH + 2);
-    int terminal_window_h = (DISPLAY_TERM_HEIGHT + 2);
+    int display_window_w = (DISPLAY_WIDTH + 2);
+    int display_window_h = (DISPLAY_HEIGHT + 2);
 
     display_data->display_mode = DISPLAY_MODE_TERMINAL;
     display_data->window_selected = 0;
 
-    display_data->options_window = newwin(3, terminal_window_w, 0, 0);
+    puts("NEWWIN BAR");
+    display_data->options_window = newwin(3, display_window_w, 0, 0);
     display_data->option_w_selected = 0;
 
     display_data->should_exit = false;
 
     display_data->data.term_mode.caret = 0;
-    display_data->data.term_mode.ram_dump_offset = 0;
 
-    for (int i = 0; i < DISPLAY_TERM_WIDTH * DISPLAY_TERM_HEIGHT; i++) {
+    for (int i = 0; i < DISPLAY_WIDTH * DISPLAY_HEIGHT; i++) {
         display_data->data.term_mode.term_chars[i] = ' ';
     }
 
-    display_data->display_window = newwin(terminal_window_h, terminal_window_w, 3, 0);
+    puts("NEWWIN DISP");
+    display_data->display_window = newwin(display_window_h, display_window_w, 3, 0);
     display_data->menu_open = 0;
 }
 
@@ -1233,7 +1236,6 @@ void tick_display(DisplayData *display_data, CpuData *cpu_data, DevicesData *dev
         wattroff(display_w, A_DIM);
 
         mvwvline(display_w, 1, 34, 0, NUM_REGS / 2 + 2);
-        mvwvline(display_w, 1, 35 + 32, 0, NUM_REGS / 2 + 2);
     }
 
     box(display_w, 0, 0);
@@ -1267,6 +1269,38 @@ void tick_display(DisplayData *display_data, CpuData *cpu_data, DevicesData *dev
     wrefresh(menu_bar_w);
 
     refresh();
+}
+
+void free_sim_data(CpuData* cpu_data, DevicesData* devices_data, DisplayData* display_data) {
+    // CPU
+    
+    puts("CPU->RAM\r");
+    free(cpu_data->ram);
+    puts("CPU\r");
+    free(cpu_data);
+
+    // DEVICES
+
+    puts("DEV->TERM_DEV_DATA\r");
+    free(devices_data->terminal_io_device_data);
+
+    puts("DEV->DISK_IO_DEV_DATA->DFILE\r");
+    fclose(devices_data->disk_io_device_data->disk_file);
+    puts("DEV->DISK_IO_DEV_DATA\r");
+    free(devices_data->disk_io_device_data);
+    
+    puts("DEV\r");
+    free(devices_data);
+
+    // DISPLAY
+
+    puts("DISP->OPT_WIN\r");
+    delwin(display_data->options_window);
+    puts("DISP->DISP_WIN\r");
+    delwin(display_data->display_window);
+
+    puts("DISP\r");
+    free(display_data);
 }
 
 int main(int argc, char *argv[]) {
@@ -1358,6 +1392,7 @@ int main(int argc, char *argv[]) {
     uint32_t current_ips = 0;
 
     DisplayData* display_data = malloc(sizeof(DisplayData));
+    printf("0x%016x\n\r", display_data);
 
     init_display_data(display_data);
 
@@ -1418,4 +1453,7 @@ int main(int argc, char *argv[]) {
     }
 
     endwin();
+
+    puts("Freeing memory\r");
+    free_sim_data(cpu_data, devices_data, display_data);
 }
