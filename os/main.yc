@@ -106,6 +106,10 @@ func fs_get_file_occupying(u32 start_section) {
 func main() {
     puts("Welcome to FungOS\n(C) Jan Parik (Honz12 on github) 2026\n");
 
+    while (1) {
+        putc(getc());
+    }
+
     disk_name = alc(17);
 
     fs_analyze_disk();

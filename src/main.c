@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
+#include <sys/types.h>
 #include <time.h>
 #include <ncurses.h>
 #include "helpers.h"
@@ -46,6 +47,10 @@ typedef struct {
     int menu_open;
 
     bool should_exit;
+
+    struct {
+        uint32_t scroll;
+    } ram_dump_view_info;
 
     union {
         struct {
@@ -192,9 +197,19 @@ int get_input(DisplayData *display_data) {
         return -1;
     }
 
-    if (display_data->display_mode == DISPLAY_MODE_TERMINAL) {
-        if (display_data->window_selected == 1) {
-            return i;
+    if (display_data->window_selected == 1) {
+        if (display_data->menu_open == 0) {
+            if (display_data->display_mode == DISPLAY_MODE_TERMINAL) {
+                return i;
+            }
+        }
+        if (display_data->menu_open == 2) {
+            if (i == KEY_UP) {
+                if (display_data->ram_dump_view_info.scroll > 0) display_data->ram_dump_view_info.scroll--;
+            }
+            if (i == KEY_DOWN) {
+                if (display_data->ram_dump_view_info.scroll < (uint32_t)-1) display_data->ram_dump_view_info.scroll++;
+            }
         }
     }
 
@@ -1224,8 +1239,11 @@ void tick_display(DisplayData *display_data, CpuData *cpu_data, DevicesData *dev
     }
 
     if (display_data->menu_open == 0) {
+        const int offset_x = (DISPLAY_WIDTH - DISPLAY_TERM_WIDTH) / 2 - 1;
+        const int offset_y = (DISPLAY_HEIGHT - DISPLAY_TERM_HEIGHT) / 2 - 1;
+
         for (int y = 0; y < DISPLAY_TERM_HEIGHT; y++) {
-            wmove(display_w, 1 + y, 1);
+            wmove(display_w, 1 + y + offset_y, 1 + offset_x);
             for (int x = 0; x < DISPLAY_TERM_WIDTH; x++) {
                 waddch(display_w, display_data->data.term_mode.term_chars[x + y * DISPLAY_TERM_WIDTH]);
             }
@@ -1247,6 +1265,21 @@ void tick_display(DisplayData *display_data, CpuData *cpu_data, DevicesData *dev
         wattroff(display_w, A_DIM);
 
         mvwvline(display_w, 1, 34, 0, NUM_REGS / 2 + 2);
+    }
+    else if (display_data->menu_open == 2) {
+        const uint32_t bytes_per_line = 16;
+        const uint32_t lines = DISPLAY_HEIGHT - 2;
+
+        for (int y = 0; y < lines; y++) {
+            uint32_t line_addr = (y + display_data->ram_dump_view_info.scroll) * bytes_per_line;
+            mvwprintw(display_w, 1 + y, 1, "0x%08x", line_addr);
+
+            for (int x = 0; x < bytes_per_line; x++) {
+                mvwprintw(display_w, 0, 0, "");
+            }
+        }
+
+        mvwhline(display_w, lines, 0, 0, DISPLAY_WIDTH);
     }
 
     box(display_w, 0, 0);
