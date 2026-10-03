@@ -349,7 +349,7 @@ disk_write:
 ;
 disk_seek:
     push32 0x11
-    ldi8 0x11 0x03 ; "DISKIO - Seek" port
+    ldi8 0x11 0x02 ; "DISKIO - Seek" port
     snd 0x11 0x10
     pop32 0x11
     ret

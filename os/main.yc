@@ -44,20 +44,11 @@ func dump_mem(u32 pointer, u32 num_bytes) {
                                         FILE SYSTEM
 =========================================================================================== */
 
-/* Reads the specified section (512 bytes) into destination_in_ram. */
-func fs_read_disk_section(u32 section, u32 destination_in_ram) {
-    disk_seek(section * 512);
-    disk_read(512, destination_in_ram);
-
-    puts("Read section 0x");
-    dumph32(section);
-    puts(" from disk.\n");
-}
-
 /* Loads the header. */
 func fs_analyze_disk() {
     u32 destination = alc(512);
-    fs_read_disk_section(0, destination + __get_MS());
+    disk_seek(0);
+    disk_read(512, destination + __get_MS());
 
     copy_mem(destination, disk_name, 16);
     destination = destination + 16;
@@ -85,7 +76,7 @@ func fs_get_continuing_section(u32 from_section) {
 
     u32 ret_val;
 
-    disk_read(4, loc(ret_val));
+    disk_read(4, loc(ret_val) + __get_MS());
 
     return ret_val;
 }

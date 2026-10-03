@@ -23,7 +23,7 @@ cbuild/rom.bin: cbuild/kernel.bin cbuild/main.bin cbuild/
 	cat cbuild/kernel.bin cbuild/main.bin > cbuild/rom.bin
 
 cbuild/main.yr2: os/main.yc cbuild/
-	$(PYTHON) compiler.py os/main.yc -o cbuild/cmain.yr2 --include-std-code false
+	$(PYTHON) compiler.py os/main.yc -o cbuild/cmain.yr2 -s test_MAIN.YC_sym.txt --include-std-code false
 	cat cbuild/cmain.yr2 os/main_helpers.yr2 > cbuild/main.yr2
 
 cbuild/:

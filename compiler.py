@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from typing import Any
+from sys import exit
 import shutil
 
 OPT_USE_ASCII = False
@@ -1198,6 +1199,7 @@ class CodeGenerator:
         self.current_indent = 0
         self.verb_output = ""
         self.label_counter = 0
+        self.symbol_file = ""
 
     def get_compiled(self, node: AstNode):
         err = self.generate(node)
@@ -1216,6 +1218,7 @@ class CodeGenerator:
     def allocate_variable(self, data: VariableData):
         self.display_compile_process("ALLOCATING VARIABLE" + AstNode.format_as_child(data, True))
         r = VariableSymbol(data, len(self.allocator_bytes) + OPT_VAR_START_ADDR)
+        self.symbol_file += f"{'VAR':<8} {data.name:<32} -> {hex(len(self.allocator_bytes) + OPT_VAR_START_ADDR)[2:]:0>8}\n"
         self.allocator_bytes += [0x00 for _ in range(data.size)]
         return r
 
@@ -1474,6 +1477,7 @@ if __name__ == "__main__":
 
     input_files = []
     output_file = "out.bin"
+    symbol_file = ""
 
     verbose = False
 
@@ -1482,6 +1486,10 @@ if __name__ == "__main__":
     for a in command_line_args:
         if multi_arg_mode == "-o":
             output_file = a
+            multi_arg_mode = ""
+
+        if multi_arg_mode == "-s":
+            symbol_file = a
             multi_arg_mode = ""
 
         elif multi_arg_mode == "--include-std-code":
@@ -1494,6 +1502,9 @@ if __name__ == "__main__":
 
         elif a == "-o":
             multi_arg_mode = "-o"
+
+        elif a == "-s":
+            multi_arg_mode = "-s"
 
         elif a == "--can-simplify-expresions":
             multi_arg_mode = "--can-simplify-expresions"
@@ -1588,3 +1599,7 @@ if __name__ == "__main__":
 
     with open(output_file, "w") as f:
         f.write(generated)
+    
+    if symbol_file != "":
+        with open(symbol_file, "w") as f:
+            f.write(code_gen.symbol_file)

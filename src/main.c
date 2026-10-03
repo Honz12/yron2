@@ -1346,7 +1346,7 @@ void tick_display(DisplayData *display_data, CpuData *cpu_data, DevicesData *dev
 
         mvwhline(display_w, ram_dump_lines, 0, 0, DISPLAY_WIDTH);
 
-        mvwprintw(display_w, DISPLAY_HEIGHT, 1, "SPACE to step the simulation");
+        mvwprintw(display_w, DISPLAY_HEIGHT, 1, "SPACE to step the simulation | F to jump to current PC");
     }
 
     box(display_w, 0, 0);
@@ -1412,6 +1412,25 @@ void free_sim_data(CpuData* cpu_data, DevicesData* devices_data, DisplayData* di
 
     puts("DISP\r");
     free(display_data);
+}
+
+int load_rom_to_ram(const char *path, CpuData *cpu_data) {
+    FILE *bin_file = fopen(path, "rb");
+    if (!bin_file) {
+        return 1;
+    }
+
+    uint32_t file_size = get_file_size(path);
+
+    if (file_size > cpu_data->ram_size) {
+        return 1;
+    }
+
+    fread(cpu_data->ram, 1, file_size, bin_file);
+
+    fclose(bin_file);
+
+    return 0;
 }
 
 int main(int argc, char *argv[]) {
@@ -1480,8 +1499,7 @@ int main(int argc, char *argv[]) {
             bin_file_path = argv[1];
         }
 
-        FILE *bin_file = fopen(bin_file_path, "rb");
-        if (!bin_file) {
+        if (load_rom_to_ram(bin_file_path, cpu_data)) {
             free(display_data);
             free(devices_data->terminal_io_device_data);
             fclose(devices_data->disk_io_device_data->disk_file);
@@ -1489,26 +1507,7 @@ int main(int argc, char *argv[]) {
             free(devices_data);
             free(cpu_data->ram);
             free(cpu_data);
-            return 1;
         }
-
-        uint32_t file_size = get_file_size(bin_file_path);
-
-        if (file_size > cpu_data->ram_size) {
-            fclose(bin_file);
-            free(display_data);
-            free(devices_data->terminal_io_device_data);
-            fclose(devices_data->disk_io_device_data->disk_file);
-            free(devices_data->disk_io_device_data);
-            free(devices_data);
-            free(cpu_data->ram);
-            free(cpu_data);
-            return 1;
-        }
-
-        fread(cpu_data->ram, 1, file_size, bin_file);
-
-        fclose(bin_file);
     }
 
     // MAIN LOOP
