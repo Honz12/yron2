@@ -8,6 +8,7 @@
 #include <time.h>
 #include <ncurses.h>
 #include "helpers.h"
+#include "cjson/cJSON.h"
 
 
 #define NUM_REGS 32
@@ -30,14 +31,8 @@ const char *menu_options[] = {
     " TERM 1 ",
     "Reg Dump",
     "RAM Dump",
-    "Settings",
 };
 const int mopt_c = sizeof(menu_options) / sizeof(char *);
-
-const uint16_t cpu_speeds[] = {
-    1, 4, 16, 128, 256, 512, 1024
-};
-const uint8_t available_cpu_speed_count = sizeof(cpu_speeds) / sizeof(typeof(cpu_speeds[0]));
 
 const uint32_t ram_dump_bytes_per_line = 16;
 const uint32_t ram_dump_lines = DISPLAY_HEIGHT - 1;
@@ -59,11 +54,6 @@ typedef struct {
 
     struct {
         uint32_t ram_view_scroll;
-        int settings_selected;
-        bool settings_editing;
-        struct {
-            int cpu_speed;
-        } settings_values;
     } inbuild_menus_info;
 
     union {
@@ -82,10 +72,6 @@ void init_display_data(DisplayData *display_data) {
     display_data->window_selected = 0;
 
     display_data->inbuild_menus_info.ram_view_scroll = 0;
-
-    display_data->inbuild_menus_info.settings_selected = 0;
-    display_data->inbuild_menus_info.settings_editing = false;
-    display_data->inbuild_menus_info.settings_values.cpu_speed = available_cpu_speed_count - 1;
 
     display_data->options_window = newwin(3, display_window_w, 0, 0);
     display_data->option_w_selected = 0;
@@ -213,9 +199,6 @@ int get_input(CpuData *cpu_data, DisplayData *display_data) {
                 case 3:
                     display_data->menu_open = 2;
                     break;
-                case 4:
-                    display_data->menu_open = 3;
-                    break;
             }
         }
 
@@ -256,42 +239,6 @@ int get_input(CpuData *cpu_data, DisplayData *display_data) {
             }
             if (i == 'f' || i == 'F') {
                 *scroll = (cpu_data->regs[REG_PC] + cpu_data->regs[REG_MS]) / ram_dump_bytes_per_line;
-            }
-        }
-        if (display_data->menu_open == 3) {
-            if (display_data->inbuild_menus_info.settings_editing) {
-                if (display_data->inbuild_menus_info.settings_selected == 0) {
-                    if (i == KEY_UP) {
-                        display_data->inbuild_menus_info.settings_values.cpu_speed++;
-                    }
-                    if (i == KEY_DOWN) {
-                        display_data->inbuild_menus_info.settings_values.cpu_speed--;
-                    }
-                    display_data->inbuild_menus_info.settings_values.cpu_speed = (
-                        display_data->inbuild_menus_info.settings_values.cpu_speed +
-                        available_cpu_speed_count
-                    ) % available_cpu_speed_count;
-                    cpu_data->sub_inst_count = cpu_speeds[display_data->inbuild_menus_info.settings_values.cpu_speed];
-                }
-            }
-            else {
-                if (i == KEY_UP) {
-                    display_data->inbuild_menus_info.settings_selected++;
-                    goto set;
-                }
-                if (i == KEY_DOWN) {
-                    display_data->inbuild_menus_info.settings_selected--;
-                    goto set;
-                }
-                goto not_set;
-                set:
-                display_data->inbuild_menus_info.settings_selected = (display_data->inbuild_menus_info.settings_selected +
-                    1) % 1;
-                not_set:
-            }
-
-            if (i == '\n') {
-                display_data->inbuild_menus_info.settings_editing = !display_data->inbuild_menus_info.settings_editing;
             }
         }
     }
@@ -1391,17 +1338,6 @@ void tick_display(DisplayData *display_data, CpuData *cpu_data, DevicesData *dev
 
         mvwprintw(display_w, DISPLAY_HEIGHT, 1, "SPACE to step the simulation | F to jump to current PC");
     }
-    else if (display_data->menu_open == 3) {
-        if (display_data->inbuild_menus_info.settings_selected == 0) {
-            wattron(display_w, display_data->inbuild_menus_info.settings_editing ? A_REVERSE : A_UNDERLINE);
-        }
-
-        mvwprintw(display_w, 1, 1, "Instruction per frame count: %4d", cpu_speeds[display_data->inbuild_menus_info.settings_values.cpu_speed], display_data->inbuild_menus_info.settings_values.cpu_speed);
-
-        if (display_data->inbuild_menus_info.settings_selected == 0) {
-            wattroff(display_w, display_data->inbuild_menus_info.settings_editing ? A_REVERSE : A_UNDERLINE);
-        }
-    }
 
     box(display_w, 0, 0);
 
@@ -1487,7 +1423,49 @@ int load_rom_to_ram(const char *path, CpuData *cpu_data) {
     return 0;
 }
 
+struct yron2config {
+    int subinsts;
+};
+
+struct yron2config *load_config_json_file() {
+    char *json_string = read_file("yron2config.json");
+    if (json_string == NULL) {
+        return 0;
+    }
+
+    cJSON *root = cJSON_Parse(json_string);
+
+    free(json_string);
+    
+    if (root == NULL) {
+        const char *error_ptr = cJSON_GetErrorPtr();
+        if (error_ptr != NULL) {
+            fprintf(stderr, "Parsing error before: %s\n", error_ptr);
+        }
+        return 0;
+    }
+
+    struct yron2config *config = malloc(sizeof(struct yron2config));
+
+    config->subinsts = 1024;
+
+    cJSON *item = NULL;
+    cJSON_ArrayForEach(item, root) {
+        if (strcmp(item->string, "subinsts")) {
+            config->subinsts = item->valueint;
+        }
+    }
+
+    return config;
+}
+
 int main(int argc, char *argv[]) {
+    struct yron2config *config = load_config_json_file();
+
+    if (config == NULL) {
+        printf("Failed to load YRON2 config (yron2config.json)");
+        return 1;
+    }
 
     CpuData *cpu_data = malloc(sizeof(CpuData));
 
@@ -1498,7 +1476,9 @@ int main(int argc, char *argv[]) {
     
     // 64 MiB of RAM, for now
     cpu_data->ram_size = 1024 * 64;
-    cpu_data->sub_inst_count = cpu_speeds[available_cpu_speed_count - 1];
+    cpu_data->sub_inst_count = config->subinsts;
+
+    free(config);
     
     cpu_data->ram = malloc(cpu_data->ram_size);
 

@@ -1,5 +1,7 @@
 #include <stdio.h>
 #include <stdint.h>
+#include <stdlib.h>
+#include "cjson/cJSON.h"
 
 #ifdef _WIN32
     #include <windows.h>
@@ -8,11 +10,7 @@
     static DWORD g_orig_console_mode;
 #else
     #include <unistd.h>
-    #include <termios.h>
-    #include <fcntl.h>
     #include <sys/stat.h>
-    // Global variable to store original Linux terminal settings
-    static struct termios g_orig_termios;
 #endif
 
 uint32_t get_file_size(const char* file_path) {
@@ -83,4 +81,32 @@ int read_byte(FILE *disk, uint32_t offset, uint8_t *out_data) {
     }
     
     return 0; // Success
+}
+
+char *read_file(const char *filename) {
+    FILE *file = fopen(filename, "rb");
+    if (file == NULL) {
+        perror("Failed to open file");
+        return NULL;
+    }
+
+    // Go to the end of the file to determine its size
+    fseek(file, 0, SEEK_END);
+    long length = ftell(file);
+    rewind(file);
+
+    // Allocate memory for the file content + 1 for null-terminator
+    char *buffer = (char *)malloc(length + 1);
+    if (buffer == NULL) {
+        perror("Memory allocation failed");
+        fclose(file);
+        return NULL;
+    }
+
+    // Read the file into the buffer
+    size_t read_bytes = fread(buffer, 1, length, file);
+    buffer[read_bytes] = '\0'; // Null-terminate the string
+
+    fclose(file);
+    return buffer;
 }
