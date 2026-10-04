@@ -969,10 +969,10 @@ class Parser:
         return self.make_bin_op(self.make_mul_div_mod, TT_OR, TT_NOR, TT_XOR, TT_AND, TT_NAND)
 
     def make_mul_div_mod(self):
-        return self.make_bin_op(self.make_add_sub, TT_MUL, TT_DIV, TT_MOD)
+        return self.make_bin_op(self.make_factor, TT_MUL, TT_DIV, TT_MOD)
 
     def make_add_sub(self):
-        return self.make_bin_op(self.make_factor, TT_PLUS, TT_MINUS)
+        return self.make_bin_op(self.make_mul_div_mod, TT_PLUS, TT_MINUS)
 
     def make_factor(self):
         if self.t.t == TT_INT:
