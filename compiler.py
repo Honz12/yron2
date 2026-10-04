@@ -966,7 +966,7 @@ class Parser:
         return self.make_bin_op(self.make_bit_op, TT_EQUAL, TT_LESSER, TT_GREATER, TT_LTE, TT_GTE, TT_NEQ)
 
     def make_bit_op(self):
-        return self.make_bin_op(self.make_mul_div_mod, TT_OR, TT_NOR, TT_XOR, TT_AND, TT_NAND)
+        return self.make_bin_op(self.make_add_sub, TT_OR, TT_NOR, TT_XOR, TT_AND, TT_NAND)
 
     def make_mul_div_mod(self):
         return self.make_bin_op(self.make_factor, TT_MUL, TT_DIV, TT_MOD)
