@@ -1,3 +1,4 @@
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
@@ -61,7 +62,7 @@ typedef struct {
         int settings_selected;
         bool settings_editing;
         struct {
-
+            int cpu_speed;
         } settings_values;
     } inbuild_menus_info;
 
@@ -79,6 +80,12 @@ void init_display_data(DisplayData *display_data) {
 
     display_data->display_mode = DISPLAY_MODE_TERMINAL;
     display_data->window_selected = 0;
+
+    display_data->inbuild_menus_info.ram_view_scroll = 0;
+
+    display_data->inbuild_menus_info.settings_selected = 0;
+    display_data->inbuild_menus_info.settings_editing = false;
+    display_data->inbuild_menus_info.settings_values.cpu_speed = available_cpu_speed_count - 1;
 
     display_data->options_window = newwin(3, display_window_w, 0, 0);
     display_data->option_w_selected = 0;
@@ -249,6 +256,42 @@ int get_input(CpuData *cpu_data, DisplayData *display_data) {
             }
             if (i == 'f' || i == 'F') {
                 *scroll = (cpu_data->regs[REG_PC] + cpu_data->regs[REG_MS]) / ram_dump_bytes_per_line;
+            }
+        }
+        if (display_data->menu_open == 3) {
+            if (display_data->inbuild_menus_info.settings_editing) {
+                if (display_data->inbuild_menus_info.settings_selected == 0) {
+                    if (i == KEY_UP) {
+                        display_data->inbuild_menus_info.settings_values.cpu_speed++;
+                    }
+                    if (i == KEY_DOWN) {
+                        display_data->inbuild_menus_info.settings_values.cpu_speed--;
+                    }
+                    display_data->inbuild_menus_info.settings_values.cpu_speed = (
+                        display_data->inbuild_menus_info.settings_values.cpu_speed +
+                        available_cpu_speed_count
+                    ) % available_cpu_speed_count;
+                    cpu_data->sub_inst_count = cpu_speeds[display_data->inbuild_menus_info.settings_values.cpu_speed];
+                }
+            }
+            else {
+                if (i == KEY_UP) {
+                    display_data->inbuild_menus_info.settings_selected++;
+                    goto set;
+                }
+                if (i == KEY_DOWN) {
+                    display_data->inbuild_menus_info.settings_selected--;
+                    goto set;
+                }
+                goto not_set;
+                set:
+                display_data->inbuild_menus_info.settings_selected = (display_data->inbuild_menus_info.settings_selected +
+                    1) % 1;
+                not_set:
+            }
+
+            if (i == '\n') {
+                display_data->inbuild_menus_info.settings_editing = !display_data->inbuild_menus_info.settings_editing;
             }
         }
     }
@@ -1348,6 +1391,17 @@ void tick_display(DisplayData *display_data, CpuData *cpu_data, DevicesData *dev
 
         mvwprintw(display_w, DISPLAY_HEIGHT, 1, "SPACE to step the simulation | F to jump to current PC");
     }
+    else if (display_data->menu_open == 3) {
+        if (display_data->inbuild_menus_info.settings_selected == 0) {
+            wattron(display_w, display_data->inbuild_menus_info.settings_editing ? A_REVERSE : A_UNDERLINE);
+        }
+
+        mvwprintw(display_w, 1, 1, "Instruction per frame count: %4d", cpu_speeds[display_data->inbuild_menus_info.settings_values.cpu_speed], display_data->inbuild_menus_info.settings_values.cpu_speed);
+
+        if (display_data->inbuild_menus_info.settings_selected == 0) {
+            wattroff(display_w, display_data->inbuild_menus_info.settings_editing ? A_REVERSE : A_UNDERLINE);
+        }
+    }
 
     box(display_w, 0, 0);
 
@@ -1444,7 +1498,7 @@ int main(int argc, char *argv[]) {
     
     // 64 MiB of RAM, for now
     cpu_data->ram_size = 1024 * 64;
-    cpu_data->sub_inst_count = 1024;
+    cpu_data->sub_inst_count = cpu_speeds[available_cpu_speed_count - 1];
     
     cpu_data->ram = malloc(cpu_data->ram_size);
 

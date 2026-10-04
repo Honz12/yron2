@@ -1,5 +1,5 @@
 u32 disk_name;
-u32 disk_dot_root_pointer;
+u32 disk_dir_root_pointer;
 u32 disk_size;
 u32 disk_first_free_section;
 u32 disk_section_count;
@@ -52,7 +52,7 @@ func fs_analyze_disk() {
 
     copy_mem(destination, disk_name, 16);
     destination = destination + 16;
-    copy_mem(destination, loc(disk_dot_root_pointer), 4);
+    copy_mem(destination, loc(disk_dir_root_pointer), 4);
     destination = destination + 4;
     copy_mem(destination, loc(disk_size), 4);
     destination = destination + 4;
@@ -109,21 +109,28 @@ func main() {
     putu(disk_size);
     puts(" bytes\n");
 
-    puts(".ROOT start section: ");
-    putu(disk_dot_root_pointer);
+    puts("$ROOT start section: ");
+    putu(disk_dir_root_pointer);
     putc('\n');
 
     puts("First free section: ");
     putu(disk_first_free_section);
     puts("\n\n");
 
-    puts(".ROOT size (sections): \n");
-    putu(fs_get_file_occupying(disk_dot_root_pointer));
+    puts("$ROOT size (sections): ");
+    putu(fs_get_file_occupying(disk_dir_root_pointer));
     putc('\n');
 
-    puts("HELLO\n");
+    puts("\nYou can now type to test your keyboard, press ENTER to exit.\n");
 
-    while (1) {
-        putc(getc());
+    u8 keyboard_test_running = 1;
+    while (keyboard_test_running) {
+        u8 c = getc();
+        if (c == '\n') {
+            keyboard_test_running = 0;
+        }
+        putc(c);
     }
+
+    puts("HALTING\n");
 }

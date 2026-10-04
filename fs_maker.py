@@ -191,7 +191,7 @@ class FsDirectory:
         data = []
 
         for f in self.files:
-            if f.file_name == ".ROOT":
+            if f.file_name == "$ROOT":
                 f.size = len(self.files) * 32
             data += list(f.get_bytes())
         
@@ -312,7 +312,7 @@ def format_disk(disk: Disk, disk_name: str):
 
     disk.seek(header.root_dir_file_section * SECTION_SIZE)
 
-    disk.write_data(".ROOT", 24)
+    disk.write_data("$ROOT", 24)
     disk.write_u32(header.root_dir_file_section)
     disk.write_u32(32)
     for _ in range(SECTION_SIZE - 32):
@@ -349,7 +349,7 @@ def analyze_disk(disk: Disk):
     if VERBOSE: print(f"|-- Name: {repr(disk_name)}")
     
     disk_root_directory_pointer = disk.get_u32()
-    if VERBOSE: print(f"|-- .ROOT file: {disk_root_directory_pointer}")
+    if VERBOSE: print(f"|-- $ROOT file: {disk_root_directory_pointer}")
     disk_size = disk.get_u32()
     if VERBOSE: print(f"|-- Disk size: {disk_size} ({format_byte_size(disk_size)})")
     if VERBOSE: print(f"|   `-- {"Matches" if disk.size == disk_size else f"Real: {disk.size}"}")
@@ -362,17 +362,17 @@ def analyze_disk(disk: Disk):
     disk_free_sections = find_free_sections(disk, header)
     if VERBOSE: print(f"|-- Free section count: {len(disk_free_sections)}\x1b[0m")
 
-    dot_root_file = read_raw_file(disk, header.root_dir_file_section)
+    dir_root_file = read_raw_file(disk, header.root_dir_file_section)
 
     with open("test_DOT_ROOT", "wb") as f:
-        f.write(bytes(dot_root_file))
+        f.write(bytes(dir_root_file))
 
     root_dir = FsDirectory([])
     
-    for file_entry_start in range(0, len(dot_root_file), 32):
-        fname = bytes(dot_root_file[file_entry_start:file_entry_start+24]).decode(TEXT_ENCODING).strip("\0")
-        fstart_section = get_u32_from_int(dot_root_file[file_entry_start+24:file_entry_start+28])
-        fsize = get_u32_from_int(dot_root_file[file_entry_start+28:file_entry_start+32])
+    for file_entry_start in range(0, len(dir_root_file), 32):
+        fname = bytes(dir_root_file[file_entry_start:file_entry_start+24]).decode(TEXT_ENCODING).strip("\0")
+        fstart_section = get_u32_from_int(dir_root_file[file_entry_start+24:file_entry_start+28])
+        fsize = get_u32_from_int(dir_root_file[file_entry_start+28:file_entry_start+32])
 
         if fname != "" and fstart_section != 0:
             file = FsFileEntry(fname, fstart_section, fsize)
@@ -521,13 +521,14 @@ def run_command(disk: Disk, cmd: list[str]):
         if cmd[0] == "ls":
             _, root_dir, _ = analyze_disk(disk)
             for f in root_dir.files:
-                print(f"{f.file_name:24} {format_byte_size(f.size)}")
+                if not f.file_name.startswith("$"):
+                    print(f"{f.file_name:24} {format_byte_size(f.size)}")
         if cmd[0] == "header":
             header, _, _ = analyze_disk(disk)
 
             print("Disk name:", repr(header.disk_name))
             print("Disk size:", repr(header.disk_size), f"({format_byte_size(header.disk_size)})")
-            print("Disk .ROOT file section:", repr(header.root_dir_file_section))
+            print("Disk $ROOT file section:", repr(header.root_dir_file_section))
             print("Disk first free section:", repr(header.first_free_section))
         if cmd[0] == "free":
             _, _, free_sections = analyze_disk(disk)
