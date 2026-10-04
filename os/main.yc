@@ -24,16 +24,16 @@ func dumph32(u32 v) {
 
 /* Displays a hex dump of a section of RAM. */
 func dump_mem(u32 pointer, u32 num_bytes) {
-    dumph32(pointer);
+    dumph32(pointer + __get_MS());
     puts(": ");
     while (num_bytes > 0) {
         putb(res8(pointer));
         putc(' ');
-        num_bytes = num_bytes - 1;
-        pointer = pointer + 1;
+        num_bytes = --num_bytes;
+        pointer = ++pointer;
         if (num_bytes % 16 == 0) {
             putc('\n');
-            dumph32(pointer);
+            dumph32(pointer + __get_MS());
             puts(": ");
         }
     }
@@ -93,6 +93,67 @@ func fs_get_file_occupying(u32 start_section) {
     return occupying;
 }
 
+/* Reads bytes from a file pointer address */
+func fs_read_file_pointer(u32 start_section, u32 destination, u32 bytes, u32 skip_bytes) {
+    while ((skip_bytes >= 512) & (start_section != 0)) {
+        skip_bytes = skip_bytes - 512;
+        start_section = fs_get_continuing_section(start_section);
+    }
+
+    if (start_section == 0) {
+        return;
+    }
+
+    if (skip_bytes > 0) {
+        disk_seek(start_section * 512 + skip_bytes);
+        
+        u32 chunk = 512 - skip_bytes;
+        if (bytes < chunk) {
+            chunk = bytes;
+        }
+        
+        disk_read(chunk, destination + __get_MS());
+        destination = destination + chunk;
+        bytes = bytes - chunk;
+        
+        start_section = fs_get_continuing_section(start_section);
+    }
+
+    while ((bytes > 0) & (start_section != 0)) {
+        disk_seek(start_section * 512);
+        
+        u32 chunk = 512;
+        if (bytes < 512) {
+            chunk = bytes;
+        }
+        
+        disk_read(chunk, destination + __get_MS());
+        destination = destination + chunk;
+        bytes = bytes - chunk;
+        
+        start_section = fs_get_continuing_section(start_section);
+    }
+}
+
+func fs_list_dir_root_files() {
+    puts("=== FILES IN $ROOT ===\n");
+
+    u32 dir_root_entries = fs_get_file_occupying(disk_dir_root_pointer) * (512 / 32);
+
+    u32 entry = 0;
+
+    u32 p_entry_data = alc(24);
+
+    while (entry < dir_root_entries) {
+        fs_read_file_pointer(disk_dir_root_pointer, p_entry_data, 24, entry * 32);
+        if ((res8(p_entry_data) != 0) & (res8(p_entry_data) != '$')) {
+            puts(p_entry_data);
+            putc('\n');
+        }
+        entry = ++entry;
+    }
+}
+
 /* Entry point */
 func main() {
     puts("Welcome to FungOS\n(C) Jan Parik (Honz12 on github) 2026\n");
@@ -119,8 +180,9 @@ func main() {
 
     puts("$ROOT size (sections): ");
     putu(fs_get_file_occupying(disk_dir_root_pointer));
-    putc('\n');
+    puts("\n\n");
 
+/*
     puts("\nYou can now type to test your keyboard, press ENTER to exit.\n");
 
     u8 keyboard_test_running = 1;
@@ -133,4 +195,7 @@ func main() {
     }
 
     puts("HALTING\n");
+*/
+
+    fs_list_dir_root_files();
 }

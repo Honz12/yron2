@@ -106,9 +106,9 @@ class CompilerError:
 
     def throw(self):
         if self.position:
-            print(f"\x1b[31m\x1b[1m{self.position.file}:{self.position.row}:{self.position.col}: error: {self.message}")
+            print(f"\x1b[31m\x1b[1m{self.position.file}:{self.position.row}:{self.position.col}: error: {self.message}\x1b[0m")
         else:
-            print(f"\x1b[31m\x1b[1m{self.position.file}: error: {self.message}")
+            print(f"\x1b[31m\x1b[1m{self.position.file}: error: {self.message}\x1b[0m")
         exit(1)
 
 DIGITS = "0123456789"
@@ -1488,7 +1488,7 @@ if __name__ == "__main__":
             output_file = a
             multi_arg_mode = ""
 
-        if multi_arg_mode == "-s":
+        elif multi_arg_mode == "-s":
             symbol_file = a
             multi_arg_mode = ""
 
@@ -1526,8 +1526,9 @@ if __name__ == "__main__":
         else:
             input_files.append(a)
 
-    if verbose: print(f"Input files: {", ".join(input_files)}")
-    if verbose: print(f"Output file: {output_file}")
+    print(f"\nInput files: {", ".join(input_files)}")
+    print(f"Output file: {output_file}")
+    print(f"Symbol file: {symbol_file}\n")
 
     tokens = []
 

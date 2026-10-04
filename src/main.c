@@ -10,6 +10,12 @@
 #include "helpers.h"
 #include "cjson/cJSON.h"
 
+#undef TRUE
+#undef FALSE
+
+
+bool g_plain_mode = false;
+
 
 #define NUM_REGS 32
 #define REG_PC 0
@@ -160,6 +166,8 @@ typedef struct {
 
 
 int get_input(CpuData *cpu_data, DisplayData *display_data) {
+    if (g_plain_mode) return -1;
+
     int i = getch();
 
     if (i == KEY_RESIZE) {
@@ -317,7 +325,13 @@ void snd_to_device(DevicesData *devices_data, DisplayData *display_data, uint32_
         case 1: // Terminal IO device
             {
                 char c = msg;
-                display_terminal_mode_putc(display_data, c);
+                if (g_plain_mode) {
+                    putc(c, stdout);
+                    fflush(stdout);
+                }
+                else {
+                    display_terminal_mode_putc(display_data, c);
+                }
             }
             break;
         
@@ -1375,32 +1389,24 @@ void tick_display(DisplayData *display_data, CpuData *cpu_data, DevicesData *dev
 void free_sim_data(CpuData* cpu_data, DevicesData* devices_data, DisplayData* display_data) {
     // CPU
     
-    puts("CPU->RAM\r");
     free(cpu_data->ram);
-    puts("CPU\r");
     free(cpu_data);
 
     // DEVICES
 
-    puts("DEV->TERM_DEV_DATA\r");
     free(devices_data->terminal_io_device_data);
 
-    puts("DEV->DISK_IO_DEV_DATA->DFILE\r");
     fclose(devices_data->disk_io_device_data->disk_file);
-    puts("DEV->DISK_IO_DEV_DATA\r");
     free(devices_data->disk_io_device_data);
     
-    puts("DEV\r");
     free(devices_data);
 
     // DISPLAY
+    if (!g_plain_mode) {
+        delwin(display_data->options_window);
+        delwin(display_data->display_window);
+    }
 
-    puts("DISP->OPT_WIN\r");
-    delwin(display_data->options_window);
-    puts("DISP->DISP_WIN\r");
-    delwin(display_data->display_window);
-
-    puts("DISP\r");
     free(display_data);
 }
 
@@ -1451,7 +1457,7 @@ struct yron2config *load_config_json_file() {
 
     cJSON *item = NULL;
     cJSON_ArrayForEach(item, root) {
-        if (strcmp(item->string, "subinsts")) {
+        if (strcmp(item->string, "subinsts") == 0) {
             config->subinsts = item->valueint;
         }
     }
@@ -1465,6 +1471,29 @@ int main(int argc, char *argv[]) {
     if (config == NULL) {
         printf("Failed to load YRON2 config (yron2config.json)");
         return 1;
+    }
+    
+    char *rom_file_path = "rom.bin";
+    uint64_t timeout_insts = -1;
+    {
+        bool collecting_timeout_insts = false;
+        for (int a = 0; a < argc; a++) {
+            char *arg = argv[a];
+            if (collecting_timeout_insts) {
+                // Safely convert string to uint64_t using strtoull
+                timeout_insts = strtoull(arg, NULL, 10);
+                collecting_timeout_insts = false; // Reset the flag so it doesn't consume the next argument
+            }
+            else if (strcmp(arg, "-p") == 0) {
+                g_plain_mode = true;
+            }
+            else if (strcmp(arg, "-timeout") == 0) {
+                collecting_timeout_insts = true;
+            }
+            else {
+                rom_file_path = arg;
+            }
+        }
     }
 
     CpuData *cpu_data = malloc(sizeof(CpuData));
@@ -1527,13 +1556,7 @@ int main(int argc, char *argv[]) {
     // LOAD BINARY FILE
 
     {
-        char *bin_file_path = "rom.bin";
-
-        if (argc > 1) {
-            bin_file_path = argv[1];
-        }
-
-        if (load_rom_to_ram(bin_file_path, cpu_data)) {
+        if (load_rom_to_ram(rom_file_path, cpu_data)) {
             free(display_data);
             free(devices_data->terminal_io_device_data);
             fclose(devices_data->disk_io_device_data->disk_file);
@@ -1546,61 +1569,81 @@ int main(int argc, char *argv[]) {
 
     // MAIN LOOP
 
-    initscr();
-    noecho();
-    cbreak();
-    keypad(stdscr, TRUE);
-    nodelay(stdscr, TRUE);
-    curs_set(0);
+    if (!g_plain_mode) {
+        initscr();
+        noecho();
+        cbreak();
+        keypad(stdscr, true);
+        nodelay(stdscr, true);
+        curs_set(0);
 
-    if (has_colors() == false) {
-        endwin();
-        free(display_data);
-        free(devices_data->terminal_io_device_data);
-        fclose(devices_data->disk_io_device_data->disk_file);
-        free(devices_data->disk_io_device_data);
-        free(devices_data);
-        free(cpu_data->ram);
-        free(cpu_data);
-        return 1;
+        if (has_colors() == false) {
+            endwin();
+            free(display_data);
+            free(devices_data->terminal_io_device_data);
+            fclose(devices_data->disk_io_device_data->disk_file);
+            free(devices_data->disk_io_device_data);
+            free(devices_data);
+            free(cpu_data->ram);
+            free(cpu_data);
+            return 1;
+        }
+        start_color();
+
+        init_pair(1, COLOR_YELLOW, COLOR_BLACK);
+
+        init_display_data(display_data);
+    } else {
+        printf("===== PROGRAM OUTPUT - TERM 1 - START =====\n\n");
     }
-    start_color();
-
-    init_pair(1, COLOR_YELLOW, COLOR_BLACK);
 
     struct timespec last_ips_time, current_time;
     clock_gettime(CLOCK_MONOTONIC, &last_ips_time);
 
     uint64_t instruction_count = 0;
+    uint64_t tick = 0;
     uint32_t current_ips = 0;
-
-    init_display_data(display_data);
 
     int frames = 0;
     int fps = 0;
 
     while (true) {
+        if (timeout_insts == 0) {
+            break;
+        }
+
         struct timespec loop_start, loop_end;
         clock_gettime(CLOCK_MONOTONIC, &loop_start);
 
-        tick_display(display_data, cpu_data, devices_data, current_ips, fps);
+        if (!g_plain_mode) tick_display(display_data, cpu_data, devices_data, current_ips, fps);
         frames++;
 
-        if (display_data->menu_open == 0 && display_data->window_selected == 1) for (int si = 0; si < cpu_data->sub_inst_count; si++) {
-            if (cpu_data->breakpoint_triggered) {
-                if (get_input(cpu_data, display_data) != 0xffffffff) {
-                    cpu_data->breakpoint_triggered = false;
-                    cpu_data->regs[REG_PC]++;
+        if (g_plain_mode || (display_data->menu_open == 0 && display_data->window_selected == 1)) {
+            for (int si = 0; si < cpu_data->sub_inst_count; si++) {
+                uint32_t prev_rpc = cpu_data->regs[REG_MS] + cpu_data->regs[REG_PC];
+                if (cpu_data->breakpoint_triggered) {
+                    printf("\n[[CPU ERROR]]\n");
+                    timeout_insts = 0;
                 }
-                break;
+                tick_cpu(cpu_data, devices_data, display_data);
+                instruction_count++;
+                if (timeout_insts != (uint64_t)-1) {
+                    timeout_insts--;
+                    if (timeout_insts == 0) {
+                        break;
+                    }
+                }
+                if (cpu_data->regs[REG_MS] + cpu_data->regs[REG_PC] == prev_rpc && g_plain_mode) {
+                    timeout_insts = 0;
+                }
+                tick++;
             }
-            tick_cpu(cpu_data, devices_data, display_data);
-            instruction_count++;
         }
         else if (cpu_data->single_step) {
             tick_cpu(cpu_data, devices_data, display_data);
             instruction_count++;
             cpu_data->single_step = false;
+            tick++;
         }
         
         update_devices(cpu_data, devices_data, display_data);
@@ -1636,9 +1679,11 @@ int main(int argc, char *argv[]) {
             process_sleep(sleep_time_us);
         }
     }
+    printf("\n===== PROGRAM OUTPUT - TERM 1 -  END  =====\n");
 
-    endwin();
+    printf("Processed %lu ticks.\n", tick);
 
-    puts("Freeing memory\r");
+    if (!g_plain_mode) endwin();
+
     free_sim_data(cpu_data, devices_data, display_data);
 }
