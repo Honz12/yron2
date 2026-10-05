@@ -141,23 +141,43 @@ func fs_read_file_pointer(u32 start_section, u32 destination, u32 bytes, u32 ski
     }
 }
 
+/* Every directory entry of $ROOT is 32 bytes,
+    the first 24 of them hold the file name. */
 func fs_list_dir_root_files() {
     puts("=== FILES IN $ROOT ===\n");
 
-    u32 dir_root_entries = fs_get_file_occupying(disk_dir_root_pointer) * (512 / 32);
+    u32 dir_root_size = fs_get_file_occupying(disk_dir_root_pointer) * 512;
+    u32 dir_root_entries = dir_root_size / 32;
+
+    /* Pulling the whole $ROOT into memory once is a lot cheaper than
+        seeking and reading a fresh entry over and over again. */
+    u32 p_dir_root = malloc(dir_root_size);
+
+    if (p_dir_root == 0) {
+        puts("Failed to allocate ");
+        putu(dir_root_size);
+        puts(" bytes for $ROOT\n");
+        return;
+    }
+
+    fs_read_file_pointer(disk_dir_root_pointer, p_dir_root, dir_root_size, 0);
 
     u32 entry = 0;
 
-    u32 p_entry_data = alc(24);
-
     while (entry < dir_root_entries) {
-        fs_read_file_pointer(disk_dir_root_pointer, p_entry_data, 24, entry * 32);
+        u32 p_entry_data = p_dir_root + entry * 32;
+        u32 file_size = res32(p_dir_root + 28);
+        
         if ((res8(p_entry_data) != 0) & (res8(p_entry_data) != '$')) {
             puts(p_entry_data);
-            putc('\n');
+            puts(" (SIZE:");
+            putu(file_size);
+            puts(")\n");
         }
         entry = ++entry;
     }
+
+    mfree(p_dir_root, dir_root_size);
 }
 
 /* ===========================================================================================
@@ -166,77 +186,173 @@ func fs_list_dir_root_files() {
 
 /*
     Design:
-        Each free section must be at least 64 bytes,
-        with the following structure (C struct):
+        The heap is a singly linked list of free sections, the head of that
+        list is kept in the 'allocator_first_free' variable.
 
-        struct {
-            uint32_t size;
-            uint32_t next_free_segment
-        }
+        Every free section holds the following structure:
+
+            offset  0 - uint32_t size               - total size of this section
+            offset 32 - uint32_t next_free_section  - next free section (0 = end of list)
+
+        The 'next_free_section' pointer lives 32 bytes into the section and not
+        right behind the 'size' field, this way the header of a section can never
+        be clobbered by a split made out of it (64 is the minimum alloc size).
+
+        A free section is therefore always at least 64 bytes big, which is the
+        least amount of bytes able to hold an allocation together with the
+        header of the leftover section.
+
+    NOTE:
+        wrt32(<value>, <address>) stores <value> at <address>,
+        this argument order comes from the 'stp32 <reg> <addr_reg>'
+        instruction that 'wrt32' itself is made of.
+
+    NOTE:
+        The compiler keeps function parameters in the argument registers
+        (0x10, 0x11, ...), which get overwritten while the arguments of a
+        nested call are being set up. Every parameter is therefore copied
+        into a local variable (those live in the data section) right at the
+        start of the functions below.
 */
 
 func alloc_get_free_section_size(u32 free_section_start) {
-    return res32(free_section_start);
+    u32 section = free_section_start;
+
+    return res32(section);
+}
+
+func alloc_set_free_section_size(u32 free_section_start, u32 size) {
+    u32 section = free_section_start;
+    u32 value = size;
+
+    wrt32(value, section);
 }
 
 func alloc_get_next_free_section(u32 free_section_start) {
-    return res32(free_section_start + 32);
+    u32 section = free_section_start + 32;
+
+    return res32(section);
 }
 
+func alloc_set_next_free_section(u32 free_section_start, u32 next_free_section) {
+    u32 section = free_section_start + 32;
+    u32 value = next_free_section;
+
+    wrt32(value, section);
+}
+
+/* Turns everything from 'heap_absolute_start' up to the top of the RAM
+    into one single free section. */
+func alloc_setup(u32 heap_absolute_start) {
+    u32 absolute_start = heap_absolute_start;
+    u32 section = absolute_start - __get_MS();
+
+    allocator_first_free = section;
+
+    alloc_set_free_section_size(section, 64 * 1024 * 1024 - absolute_start);
+    alloc_set_next_free_section(section, 0);
+}
+
+/* Allocates 'size' bytes of memory.
+    RETURNS: pointer to the allocated memory, 0 when out of memory. */
 func malloc(u32 size) {
-    if (size < 64) {
+    u32 alloc_size = size;
+
+    if (alloc_size < 64) {
         puts("Invalid malloc(...) call:\n\tminimum alloc size is 64,\n\tgot ");
-        putu(size);
+        putu(alloc_size);
         puts(" expanding to 64.\nAny to continue ...\n");
         getc();
-        size = 64;
+        alloc_size = 64;
     }
 
-    u32 prev_free_pointer = 0;
+    if (allocator_first_free == 0) {
+        puts("Failed to malloc size ");
+        putu(alloc_size);
+        puts(", the heap has no free section.\nAny to continue ...\n");
+        getc();
+        return 0;
+    }
+
     u32 pointer_allocated = allocator_first_free;
+    u32 prev_free_pointer = 0;
     u32 available_free_size = alloc_get_free_section_size(pointer_allocated);
 
-    while (available_free_size < size + 64) {
+    while (available_free_size < alloc_size + 64) {
+        /* Remember the section we are leaving, it has to point
+            to the new one once the found section gets split. */
+        prev_free_pointer = pointer_allocated;
         pointer_allocated = alloc_get_next_free_section(pointer_allocated);
-        available_free_size = alloc_get_free_segment_size(pointer_allocated);
 
+        /* Test for the end of the list before dereferencing it */
         if (pointer_allocated == 0) {
             puts("Failed to malloc size ");
-            putu(size);
-            putc('\n');
+            putu(alloc_size);
+            puts(", out of memory.\nAny to continue ...\n");
             getc();
             return 0;
         }
+
+        available_free_size = alloc_get_free_section_size(pointer_allocated);
     }
 
     u32 next_free_pointer = alloc_get_next_free_section(pointer_allocated);
+    u32 allocated_pointer = pointer_allocated;
 
-    u32 r = pointer_allocated;
-    
-    pointer_allocated = pointer_allocated + size;
+    /* Split the found section, its tail becomes the new free section */
 
-    // Setup the new free allocator segment
+    pointer_allocated = pointer_allocated + alloc_size;
+
+    alloc_set_free_section_size(pointer_allocated, available_free_size - alloc_size);
+    alloc_set_next_free_section(pointer_allocated, next_free_pointer);
+
+    /* And link the new free section into the list */
 
     if (prev_free_pointer != 0)
-        wrt32(pointer_allocated, prev_free_pointer + 32);
+        alloc_set_next_free_section(prev_free_pointer, pointer_allocated);
     else
         allocator_first_free = pointer_allocated;
 
-    wrt32(pointer_allocated, available_free_size - size);
-    wrt32(pointer_allocated + 32, next_free_pointer);
-
-    puts("allocated ");
-    putu(size);
+    /*puts("allocated ");
+    putu(alloc_size);
     puts(" to 0x");
-    dumph32(r + __get_MS());
-    putc('\n');
-    
-    return r;
+    dumph32(allocated_pointer + __get_MS());
+    putc('\n');*/
+
+    return allocated_pointer;
 }
 
+/* Returns 'size' bytes of memory located at 'pointer' back into the heap.
+    'size' has to be the very same amount of bytes that was
+    requested from malloc(...) for that pointer. */
 func mfree(u32 pointer, u32 size) {
-    wrt32(pointer, size);
-    wrt32(pointer, allocator_first_free);
+    u32 freed_pointer = pointer;
+    u32 freed_size = size;
+
+    if (freed_pointer == 0) {
+        return;
+    }
+
+    if (freed_size < 64) {
+        puts("Invalid mfree(...) call:\n\tminimum free size is 64,\n\tgot ");
+        putu(freed_size);
+        puts(" expanding to 64.\nAny to continue ...\n");
+        getc();
+        freed_size = 64;
+    }
+
+    /* Push the freed section to the head of the free list */
+
+    alloc_set_free_section_size(freed_pointer, freed_size);
+    alloc_set_next_free_section(freed_pointer, allocator_first_free);
+
+    allocator_first_free = freed_pointer;
+
+    /*puts("freed ");
+    putu(freed_size);
+    puts(" from 0x");
+    dumph32(freed_pointer + __get_MS());
+    putc('\n');*/
 }
 
 func term_clear(u32 lines) {
@@ -257,10 +373,9 @@ func main() {
     { // Setup allocator
         puts("[SETUP] Setting up allocator\n");
 
-        allocator_first_free = 0x10000 - __get_MS();
-
-        wrt32((64 * 1024 * 1024 - 1) - allocator_first_free, allocator_first_free);
-        wrt32(0, allocator_first_free + 32);
+        /* The heap starts right above the ROM and the data section, the stack
+            grows down from 0xFFFF so it stays below it. */
+        alloc_setup(0x10000);
     }
     
     { // Setup Disk
@@ -315,8 +430,4 @@ func main() {
 */
 
     fs_list_dir_root_files();
-
-    u32 p_test1 = malloc(64);
-    u32 p_test2 = malloc(64);
-    mfree(p_test1);
 }
