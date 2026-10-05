@@ -5,7 +5,7 @@ detect:
 
 rules:
     - preprocessor: "\\b(?i)(loc|alc)\\b"
-    - statement: "\\b(func|return|breakpoint|if|else|while|)\\b"
+    - statement: "\\b(func|return|breakpoint|if|else|while|def|asm|include)\\b"
 
     - constant.number: "\\b0x[0-9a-fA-F]+\\b"
     - constant.number: "\\b0b[01]+\\b"
@@ -15,3 +15,9 @@ rules:
 
     - string: "\"(\\\\.|[^\"])*\""
     - string: "'(\\\\.|[^\'])*'"
+    
+    - comment: "//.*"
+    - comment:
+        start: "/\\*"
+        end: "\\*/"
+        rules: []

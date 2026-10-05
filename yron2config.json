@@ -1,3 +1,4 @@
 {
-    "subinsts": 1024
+    "subinsts": 1024,
+    "ram": 67108864
 }

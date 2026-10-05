@@ -29,8 +29,78 @@ bool g_plain_mode = false;
 #define DISPLAY_TERM_WIDTH 80
 #define DISPLAY_TERM_HEIGHT 25
 
-#define DISPLAY_WIDTH 120
-#define DISPLAY_HEIGHT 40
+#define DISPLAY_WIDTH 80
+#define DISPLAY_HEIGHT 30
+
+char *instruction_names[256] = {
+    [0x00] = "NOP",
+
+    [0x01] = "CALL",
+    [0x02] = "RET",
+    [0x03] = "INT",
+    [0x04] = "IRET",
+
+    [0x05] = "MOV",
+
+    [0x08] = "PUSH8",
+    [0x09] = "PUSH16",
+    [0x0A] = "PUSH32",
+    [0x0B] = "POP8",
+    [0x0C] = "POP16",
+    [0x0D] = "POP32",
+
+    [0x10] = "LDI8",
+    [0x11] = "LDI16",
+    [0x12] = "LDI32",
+
+    [0x14] = "LD8",
+    [0x15] = "LD16",
+    [0x16] = "LD32",
+
+    [0x18] = "LDP8",
+    [0x19] = "LDP16",
+    [0x1A] = "LDP32",
+
+    [0x1C] = "ST8",
+    [0x1D] = "ST16",
+    [0x1E] = "ST32",
+
+    [0x20] = "STP8",
+    [0x21] = "STP16",
+    [0x22] = "STP32",
+
+    [0x24] = "ADD",
+    [0x25] = "SUB",
+    [0x26] = "MUL",
+    [0x27] = "MULS",
+    [0x28] = "DIV",
+    [0x29] = "DIVS",
+    [0x2A] = "MOD",
+    [0x2B] = "MODS",
+    [0x2C] = "INC",
+    [0x2D] = "DEC",
+
+    [0x30] = "AND",
+    [0x31] = "NAND",
+    [0x32] = "OR",
+    [0x33] = "NOR",
+    [0x34] = "XOR",
+
+    [0x40] = "EQ",
+    [0x41] = "GT",
+    [0x42] = "GTE",
+    [0x43] = "LT",
+    [0x44] = "LTE",
+    [0x45] = "NEQ",
+
+    [0x48] = "JMP",
+    [0x49] = "JZ",
+    [0x4A] = "JNZ",
+    [0x4B] = "LJMP",
+
+    [0x50] = "SND",
+    [0x51] = "RCV"
+};
 
 const char *menu_options[] = {
     "  Exit  ",
@@ -41,7 +111,7 @@ const char *menu_options[] = {
 const int mopt_c = sizeof(menu_options) / sizeof(char *);
 
 const uint32_t ram_dump_bytes_per_line = 16;
-const uint32_t ram_dump_lines = DISPLAY_HEIGHT - 1;
+const uint32_t ram_dump_lines = DISPLAY_HEIGHT - 2;
 
 typedef enum : char {
     DISPLAY_MODE_TERMINAL
@@ -1283,8 +1353,8 @@ void tick_display(DisplayData *display_data, CpuData *cpu_data, DevicesData *dev
     }
 
     if (display_data->menu_open == 0) {
-        const int offset_x = (DISPLAY_WIDTH - DISPLAY_TERM_WIDTH) / 2 - 1;
-        const int offset_y = (DISPLAY_HEIGHT - DISPLAY_TERM_HEIGHT) / 2 - 1;
+        const int offset_x = (DISPLAY_WIDTH - DISPLAY_TERM_WIDTH) / 2;
+        const int offset_y = (DISPLAY_HEIGHT - DISPLAY_TERM_HEIGHT) / 2;
 
         for (int y = 0; y < DISPLAY_TERM_HEIGHT; y++) {
             wmove(display_w, 1 + y + offset_y, 1 + offset_x);
@@ -1350,6 +1420,12 @@ void tick_display(DisplayData *display_data, CpuData *cpu_data, DevicesData *dev
 
         mvwhline(display_w, ram_dump_lines, 0, 0, DISPLAY_WIDTH);
 
+        uint32_t current_pc = cpu_data->regs[REG_MS] + cpu_data->regs[REG_PC];
+
+        if (current_pc < cpu_data->ram_size)
+            mvwprintw(display_w, DISPLAY_HEIGHT - 1, 1, "INST: %-8s (%02x)", instruction_names[cpu_data->ram[current_pc]], cpu_data->ram[current_pc]);
+        else
+            mvwprintw(display_w, DISPLAY_HEIGHT - 1, 1, "INST: ........ (..)");
         mvwprintw(display_w, DISPLAY_HEIGHT, 1, "SPACE to step the simulation | F to jump to current PC");
     }
 
@@ -1431,6 +1507,7 @@ int load_rom_to_ram(const char *path, CpuData *cpu_data) {
 
 struct yron2config {
     int subinsts;
+    uint32_t ram_size;
 };
 
 struct yron2config *load_config_json_file() {
@@ -1454,11 +1531,15 @@ struct yron2config *load_config_json_file() {
     struct yron2config *config = malloc(sizeof(struct yron2config));
 
     config->subinsts = 1024;
+    config->ram_size = 64 * 1024; // 64 KiB
 
     cJSON *item = NULL;
     cJSON_ArrayForEach(item, root) {
         if (strcmp(item->string, "subinsts") == 0) {
             config->subinsts = item->valueint;
+        }
+        if (strcmp(item->string, "ram") == 0) {
+            config->ram_size = item->valueint;
         }
     }
 
@@ -1503,8 +1584,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     
-    // 64 MiB of RAM, for now
-    cpu_data->ram_size = 1024 * 64;
+    cpu_data->ram_size = config->ram_size;
     cpu_data->sub_inst_count = config->subinsts;
 
     free(config);
@@ -1622,8 +1702,7 @@ int main(int argc, char *argv[]) {
             for (int si = 0; si < cpu_data->sub_inst_count; si++) {
                 uint32_t prev_rpc = cpu_data->regs[REG_MS] + cpu_data->regs[REG_PC];
                 if (cpu_data->breakpoint_triggered) {
-                    printf("\n[[CPU ERROR]]\n");
-                    timeout_insts = 0;
+                    break;
                 }
                 tick_cpu(cpu_data, devices_data, display_data);
                 instruction_count++;

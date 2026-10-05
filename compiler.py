@@ -77,6 +77,9 @@ TT_KW_BREAKPOINT = "kw_breakpoint"
 
 TT_KW_DEF = "kw_def"
 
+TT_KW_ASM = "kw_asm"
+TT_KW_INCLUDE = "kw_include"
+
 @dataclass
 class Token:
     t: str
@@ -139,6 +142,9 @@ KEYWORD_MAP = {
     "breakpoint": TT_KW_BREAKPOINT,
 
     "def": TT_KW_DEF,
+
+    "asm": TT_KW_ASM,
+    "include": TT_KW_INCLUDE,
 }
 
 SYMBOL_MAP = {
@@ -748,6 +754,15 @@ class DefineStatementNode(AstNode):
         o += self.format_as_child(self.value, True)
         return o
 
+@dataclass
+class IncludeStatementNode(AstNode):
+    path: str
+    is_asm: bool
+
+    def __str__(self):
+        o += f"IncludeStatement ({'YR2' if self.is_asm else 'YC'})"
+        o += self.format_as_child(repr(path))
+
 VARIBLE_TYPES = {
     TT_KW_U8: (1, False),
     TT_KW_U16: (2, False),
@@ -919,11 +934,27 @@ class Parser:
             self.advance()
             name = self.consume(TT_IDEN).v
             value = self.make_expr()
-            return DefineStatementNode(base_token.start, value.end_pos, name, value)
+            return DefineStatementNode(base_token.start, self.consume(TT_SEMI).end, name, value)
+        
+        elif base_token.t == TT_KW_ASM:
+            self.advance()
+            path = self.consume(TT_STRING)
+            return IncludeStatementNode(base_token.start, self.consume(TT_SEMI).end, path.v, True)
+        
+        elif base_token.t == TT_KW_INCLUDE:
+            self.advance()
+            path = self.consume(TT_STRING)
+            return IncludeStatementNode(base_token.start, self.consume(TT_SEMI).end, path.v, False)
+
+        elif base_token.t == TT_KW_DEF:
+            name = self.consume(TT_STRING).v
+            self.advance()
+            expr = self.make_expr()
+            return DefineStatementNode(base_token.start, self.consume(TT_SEMI).end, name, expr)
 
         elif base_token.t in (TT_INT, TT_LPAREN, TT_IDEN, TT_KW_LOC, TT_KW_ALC, TT_INC, TT_DEC):
             expr = self.make_expr()
-            self.consume(TT_SEMI)
+            expr.end_pos = self.consume(TT_SEMI)
             return expr
 
         else:
@@ -1277,6 +1308,11 @@ class CodeGenerator:
         self.indent(-1)
         self.append()
         return body_err
+    
+    def gen_IncludeStatementNode(self, node: IncludeStatementNode):
+        self.append()
+        self.append("ins" if node.is_asm else "insc", " \"", node.path, "\"")
+        self.append()
 
     def resolve_expr_into_reg(self, node: AstNode, reg: int):
         if isinstance(node, LiteralIntNode):
@@ -1604,3 +1640,20 @@ if __name__ == "__main__":
     if symbol_file != "":
         with open(symbol_file, "w") as f:
             f.write(code_gen.symbol_file)
+
+def get_compiled(code: str, filename: str):
+    lexer = Lexer(code, filename)
+    tokens = lexer.get_tokens()
+
+    parser = Parser(tokens)
+    ast = parser.get_ast()
+
+    code_gen = CodeGenerator()
+
+    generated, cgen_error = code_gen.get_compiled(ast)
+
+    if cgen_error:
+        print("\n")
+        cgen_error.throw()
+    
+    return generated

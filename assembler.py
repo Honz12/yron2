@@ -1,6 +1,7 @@
 #!/bin/python3
 from dataclasses import dataclass
 from typing import Any
+from compiler import get_compiled
 
 TT_CONST = "const"
 TT_INST = "inst"
@@ -14,6 +15,8 @@ TT_DIR_DUMP16 = "dir-dump16"
 TT_DIR_DUMP32 = "dir-dump32"
 TT_DIR_ORG = "dir-org"
 TT_DIR_FILL = "dir-fill"
+TT_DIR_INS = "dir-inc"
+TT_DIR_INSC = "dir-INSC"
 
 IA_1B = "1 byte"
 IA_2B = "2 bytes"
@@ -109,6 +112,9 @@ DIRECTIVES = {
     "org": TT_DIR_ORG,
 
     "fill": TT_DIR_FILL,
+
+    "ins": TT_DIR_INS,
+    "insc": TT_DIR_INSC,
 }
 
 @dataclass
@@ -318,14 +324,14 @@ class CodeGenerator:
     def int_to_4bytes(i: int):
         return [i % 256, (i >> 8) % 256, (i >> 16) % 256, (i >> 24) % 256]
 
-    def get_bytes(self):
+    def get_bytes(self, offset: int = 0):
         @dataclass
         class ValuePostReplacement:
             address: int
             size: int
             name: str
 
-        out: list[int] = []
+        out: list[int] = [0 for _ in range(offset)]
         names: dict[str, int] = {}
         current_label_scope = ""
         value_post_replacements: list[ValuePostReplacement] = []
@@ -439,6 +445,9 @@ class CodeGenerator:
                         else:
                             print(f"Character {repr(c)} can't be converted to extended ASCII (index over 255), inserting 0x00")
                             out.append(0)
+                else:
+                    print("Expected string after STR")
+                    return
                 self.advance()
             elif self.t.t == TT_DIR_ORG:
                 self.advance()
@@ -450,6 +459,9 @@ class CodeGenerator:
                 if self.t.t == TT_CONST:
                     while len(out) < self.t.v:
                         out.append(0x00)
+                else:
+                    print("Expected constant after ORG")
+                    return
                 
                 self.advance()
             elif self.t.t == TT_DIR_FILL:
@@ -461,7 +473,70 @@ class CodeGenerator:
 
                 if self.t.t == TT_CONST:
                     out += [0x00 for _ in range(self.t.v)]
+                else:
+                    print("Expected constant after FILL")
+                    return
 
+                self.advance()
+            elif self.t.t == TT_DIR_INS:
+                self.advance()
+
+                if self.t is None:
+                    print("Expected string after INS")
+                    return
+
+                if self.t.t == TT_STRING:
+                    with open(self.t.v, "r") as f:
+                        lexer = Lexer(f.read(), self.verbose)
+                        tokens = lexer.get_tokens()
+                        if tokens is None:
+                            return
+                        code_gen = CodeGenerator(tokens, self.verbose)
+                        code, file_names = code_gen.get_bytes(len(out))
+
+                        if code is None:
+                            return
+                        
+                        for k in file_names:
+                            if k not in names:
+                                names[k] = file_names[k]
+                        
+                        for b in code:
+                            out.append(b)
+                else:
+                    print("Expected string after INS")
+                    return
+                self.advance()
+            elif self.t.t == TT_DIR_INSC:
+                self.advance()
+
+                if self.t is None:
+                    print("Expected string after INSC")
+                    return
+
+                if self.t.t == TT_STRING:
+                    with open(self.t.v, "r") as f:
+                        asm = get_compiled(f.read(), self.t.v)
+
+                        lexer = Lexer(asm, self.verbose)
+                        tokens = lexer.get_tokens()
+                        if tokens is None:
+                            return
+                        code_gen = CodeGenerator(tokens, self.verbose)
+                        code, file_names = code_gen.get_bytes(len(out))
+
+                        if code is None:
+                            return
+                        
+                        for k in file_names:
+                            #if k not in names:
+                            names[k] = file_names[k]
+                        
+                        for b in code:
+                            out.append(b)
+                else:
+                    print("Expected string after INSC")
+                    return
                 self.advance()
             else:
                 print(f"UNKNOWN TOKEN {repr(self.t.t)}:{repr(self.t.v)}")
@@ -490,8 +565,8 @@ class CodeGenerator:
                 print(f"Name {repr(replace.name)} does not exist.")
 
         if self.verbose: print("\n" + "-" * 50)
-
-        return bytes(out)
+        
+        return out[offset:], names
 
 if __name__ == "__main__":
     from sys import argv
@@ -546,10 +621,15 @@ if __name__ == "__main__":
     ))
 
     code_gen = CodeGenerator(tokens, verbose)
-    out = code_gen.get_bytes()
+    out, _ = code_gen.get_bytes()
 
     if out is None:
         exit(1)
 
+    for i in out:
+        if not isinstance(i, int):
+            print(i.__class__)
+            print(i)
+
     with open(output_file, "wb") as of:
-        of.write(out)
+        of.write(bytes(out))
