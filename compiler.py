@@ -372,6 +372,8 @@ class Lexer:
                         chars += "\a"
                     case "e":
                         chars += "\x1b"
+                    case "b":
+                        chars += "\b"
                     case "0":
                         chars += "\0"
                 self.advance()
@@ -401,6 +403,7 @@ class Lexer:
                 "t": ord("\t"),
                 "a": ord("\a"),
                 "e": ord("\x1b"),
+                "b": ord("\b"),
                 "0": 0,
             }
             c = cmap.get(self.c, 0)

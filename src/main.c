@@ -29,8 +29,8 @@ bool g_plain_mode = false;
 #define DISPLAY_TERM_WIDTH 55
 #define DISPLAY_TERM_HEIGHT 20
 
-#define DISPLAY_WIDTH DISPLAY_TERM_WIDTH
-#define DISPLAY_HEIGHT DISPLAY_TERM_HEIGHT
+#define DISPLAY_WIDTH 80
+#define DISPLAY_HEIGHT 25
 
 char *instruction_names[256] = {
     [0x00] = "NOP",
@@ -183,6 +183,9 @@ void display_terminal_mode_putc(DisplayData *display_data, char c) {
         else if (c == '\a') {
             beep();
         }
+        else if (c == '\b') {
+            if (caret > 0) caret--;
+        }
         else {
             if (caret < max_chars) {
                 display_data->data.term_mode.term_chars[caret] = c;
@@ -286,6 +289,9 @@ int get_input(CpuData *cpu_data, DisplayData *display_data) {
     if (display_data->window_selected == 1) {
         if (display_data->menu_open == 0) {
             if (display_data->display_mode == DISPLAY_MODE_TERMINAL) {
+                if (i == KEY_BACKSPACE) {
+                    return '\b';
+                }
                 return i;
             }
         }

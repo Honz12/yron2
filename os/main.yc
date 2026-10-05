@@ -10,6 +10,13 @@ u32 disk_size;
 u32 disk_first_free_section;
 u32 disk_section_count;
 
+/* $ROOT, worked out and kept in memory by fs_analyze_disk(...),
+    so that the directory never has to be read from the disk again */
+u32 disk_root_dir_sections;
+u32 disk_root_dir_size;
+u32 disk_root_dir_entries;
+u32 p_dir_root;
+
 /* ===========================================================================================
                                         MEMORY DISPLAY
 =========================================================================================== */
@@ -50,11 +57,16 @@ func dump_mem(u32 pointer, u32 num_bytes) {
                                         FILE SYSTEM
 =========================================================================================== */
 
-/* Loads the header. */
+/* Loads the header and pulls $ROOT into memory, so that the directory
+    is read from the disk only once during the whole session. */
 func fs_analyze_disk() {
-    u32 destination = alc(512);
+    /* 16 bytes of name + 3 uint32 fields, the header is 28 bytes long */
+    u32 destination = alc(28);
+
+    disk_name = alc(17);
+
     disk_seek(0);
-    disk_read(512, destination + __get_MS());
+    disk_read(28, destination + __get_MS());
 
     copy_mem(destination, disk_name, 16);
     destination = destination + 16;
@@ -65,6 +77,42 @@ func fs_analyze_disk() {
     copy_mem(destination, loc(disk_first_free_section), 4);
 
     disk_section_count = disk_size / 512;
+
+    disk_root_dir_sections = fs_get_file_occupying(disk_dir_root_pointer);
+    disk_root_dir_size = disk_root_dir_sections * 512;
+    disk_root_dir_entries = disk_root_dir_size / 32;
+
+    p_dir_root = malloc(disk_root_dir_size);
+
+    if (p_dir_root == 0) {
+        puts("Failed to allocate ");
+        putu(disk_root_dir_size);
+        puts(" bytes for $ROOT\n");
+
+        p_dir_root = 0;
+        disk_root_dir_sections = 0;
+        disk_root_dir_size = 0;
+        disk_root_dir_entries = 0;
+
+        return;
+    }
+
+    fs_read_file_pointer(disk_dir_root_pointer, p_dir_root, disk_root_dir_size, 0);
+}
+
+/* Gives the $ROOT copy held by fs_analyze_disk(...) back to the heap,
+    so that it stops occupying memory once it is not needed anymore. */
+func fs_release_dir_root() {
+    if (p_dir_root == 0) {
+        return;
+    }
+
+    mfree(p_dir_root, disk_root_dir_size);
+
+    p_dir_root = 0;
+    disk_root_dir_sections = 0;
+    disk_root_dir_size = 0;
+    disk_root_dir_entries = 0;
 }
 
 /* Returns the next section from the file table. */
@@ -141,43 +189,35 @@ func fs_read_file_pointer(u32 start_section, u32 destination, u32 bytes, u32 ski
     }
 }
 
-/* Every directory entry of $ROOT is 32 bytes,
-    the first 24 of them hold the file name. */
+/* Every directory entry of $ROOT is 32 bytes:
+        offset  0 - 24 bytes file name
+        offset 24 - uint32_t first section of the file
+        offset 28 - uint32_t size of the file in bytes
+
+    $ROOT itself was already pulled into memory by fs_analyze_disk(...),
+    so this only walks that copy and never touches the disk. */
 func fs_list_dir_root_files() {
     puts("=== FILES IN $ROOT ===\n");
 
-    u32 dir_root_size = fs_get_file_occupying(disk_dir_root_pointer) * 512;
-    u32 dir_root_entries = dir_root_size / 32;
-
-    /* Pulling the whole $ROOT into memory once is a lot cheaper than
-        seeking and reading a fresh entry over and over again. */
-    u32 p_dir_root = malloc(dir_root_size);
-
-    if (p_dir_root == 0) {
-        puts("Failed to allocate ");
-        putu(dir_root_size);
-        puts(" bytes for $ROOT\n");
+    if (disk_root_dir_entries == 0) {
+        puts("$ROOT is not available\n");
         return;
     }
 
-    fs_read_file_pointer(disk_dir_root_pointer, p_dir_root, dir_root_size, 0);
-
     u32 entry = 0;
 
-    while (entry < dir_root_entries) {
+    while (entry < disk_root_dir_entries) {
         u32 p_entry_data = p_dir_root + entry * 32;
-        u32 file_size = res32(p_dir_root + 28);
-        
+        u32 file_size = res32(p_entry_data + 28);
+
         if ((res8(p_entry_data) != 0) & (res8(p_entry_data) != '$')) {
             puts(p_entry_data);
-            puts(" (SIZE:");
+            puts(" (");
             putu(file_size);
-            puts(")\n");
+            puts(" bytes)\n");
         }
         entry = ++entry;
     }
-
-    mfree(p_dir_root, dir_root_size);
 }
 
 /* ===========================================================================================
@@ -368,6 +408,98 @@ func cpu_burn(u32 loops) {
     }
 }
 
+func streq(u32 s1, u32 s2) {
+    while (1) {
+        if (
+            res8(s1) !=
+            res8(s2)
+        ) return 0;
+
+        if (res8(s1) == 0) return 1;
+
+        s1 = ++s1;
+        s2 = ++s2;
+    }
+}
+
+func fungsh_run(u32 p_command) {
+    if (res8(p_command) == 0) {
+        return 0;
+    }
+
+    if (streq(p_command, "clear")) {
+        term_clear();
+        return 0;
+    }
+
+    if (streq(p_command, "ls")) {
+        fs_list_dir_root_files();
+        return 0;
+    }
+
+    if (streq(p_command, "exit")) {
+        return 2;
+    }
+    
+    puts("Unknown command: ");
+    puts(p_command);
+    putc('\n');
+
+    return 1;
+}
+
+func shell() {
+    u32 command = alc(32);
+    u16 caret = 0;
+    
+    while (1) {
+        puts("FungSH $ ");
+        u8 typing = 1;
+
+        while (typing) {
+            u8 c = getc();
+
+            if (c == '\n') {
+                putc('\n');
+                u8 exit_c = fungsh_run(command);
+
+                if (exit_c == 0) {}
+                else if (exit_c == 1)
+                    puts("[FAILED 0x01]\n");
+                else if (exit_c == 2) {
+                    puts("[EXIT 0x02]");
+                    return 0;
+                }
+                else {
+                    puts("[FAILED UNKNOWN EXIT CODE]\n");
+                }
+                typing = 0;
+                caret = 0;
+                wrt8(0, command);
+            }
+            else if (c == '\b') {
+                if (caret > 0) {
+                    caret = --caret;
+                    wrt8(0, command + caret);
+                    putc('\b');
+                    putc(' ');
+                    putc('\b');
+                }
+                else putc('\a');
+            }
+            else {
+                if (caret < 31) {
+                    wrt8(c, command + caret);
+                    caret = ++caret;
+                    wrt8(0, command + caret);
+                    putc(c);
+                }
+                else putc('\a');
+            }
+        }
+    }
+}
+
 /* Entry point */
 func main() {
     { // Setup allocator
@@ -380,8 +512,6 @@ func main() {
     
     { // Setup Disk
         puts("[SETUP] Setting up disk\n");
-
-        disk_name = alc(17);
 
         fs_analyze_disk();
     }
@@ -411,7 +541,7 @@ func main() {
     puts("\n\n");
 
     puts("$ROOT size (sections): ");
-    putu(fs_get_file_occupying(disk_dir_root_pointer));
+    putu(disk_root_dir_sections);
     puts("\n\n");
 
 /*
@@ -429,5 +559,7 @@ func main() {
     puts("HALTING\n");
 */
 
-    fs_list_dir_root_files();
+    shell();
+
+    fs_release_dir_root();
 }
