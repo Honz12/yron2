@@ -31,6 +31,9 @@ cbuild/:
 run: build/exe cbuild/rom.bin disk.bin
 	./build/exe cbuild/rom.bin
 
+test: build/exe cbuild/rom.bin disk.bin
+	./build/exe cbuild/rom.bin -p -timeout 100000
+
 clean:
 	rm build/ -fr
 	rm cbuild/ -fr

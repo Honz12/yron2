@@ -26,11 +26,11 @@ bool g_plain_mode = false;
 #define INT_GEN_ERR 0x00
 #define INT_INV_RAM_ADDR_ERR 0x01
 
-#define DISPLAY_TERM_WIDTH 80
-#define DISPLAY_TERM_HEIGHT 25
+#define DISPLAY_TERM_WIDTH 55
+#define DISPLAY_TERM_HEIGHT 20
 
-#define DISPLAY_WIDTH 80
-#define DISPLAY_HEIGHT 30
+#define DISPLAY_WIDTH DISPLAY_TERM_WIDTH
+#define DISPLAY_HEIGHT DISPLAY_TERM_HEIGHT
 
 char *instruction_names[256] = {
     [0x00] = "NOP",

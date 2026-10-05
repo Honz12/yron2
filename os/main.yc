@@ -192,12 +192,13 @@ func malloc(u32 size) {
         size = 64;
     }
 
+    u32 prev_free_pointer = 0;
     u32 pointer_allocated = allocator_first_free;
     u32 available_free_size = alloc_get_free_section_size(pointer_allocated);
 
-    while (available_free_size < size) {
-        pointer_allocated = _alloc_get_next_free_section(pointer_allocated);
-        available_free_size = _alloc_get_free_segment_size(pointer_allocated);
+    while (available_free_size < size + 64) {
+        pointer_allocated = alloc_get_next_free_section(pointer_allocated);
+        available_free_size = alloc_get_free_segment_size(pointer_allocated);
 
         if (pointer_allocated == 0) {
             puts("Failed to malloc size ");
@@ -208,15 +209,34 @@ func malloc(u32 size) {
         }
     }
 
+    u32 next_free_pointer = alloc_get_next_free_section(pointer_allocated);
+
     u32 r = pointer_allocated;
     
     pointer_allocated = pointer_allocated + size;
 
     // Setup the new free allocator segment
 
-    
+    if (prev_free_pointer != 0)
+        wrt32(pointer_allocated, prev_free_pointer + 32);
+    else
+        allocator_first_free = pointer_allocated;
+
+    wrt32(pointer_allocated, available_free_size - size);
+    wrt32(pointer_allocated + 32, next_free_pointer);
+
+    puts("allocated ");
+    putu(size);
+    puts(" to 0x");
+    dumph32(r + __get_MS());
+    putc('\n');
     
     return r;
+}
+
+func mfree(u32 pointer, u32 size) {
+    wrt32(pointer, size);
+    wrt32(pointer, allocator_first_free);
 }
 
 func term_clear(u32 lines) {
@@ -295,4 +315,8 @@ func main() {
 */
 
     fs_list_dir_root_files();
+
+    u32 p_test1 = malloc(64);
+    u32 p_test2 = malloc(64);
+    mfree(p_test1);
 }
