@@ -1398,14 +1398,31 @@ class CodeGenerator:
             return CompilerError(f"CODE GEN - AST node {type(node).__name__} can't be an expression.", node.start_pos)
 
     def gen_FunctionCallNode(self, node: FunctionCallNode):
+        # Arguments are evaluated into scratch variables first, so that a later
+        # argument can still read a parameter of the calling function. The
+        # parameter registers (0x10, 0x11, ...) are the very same registers the
+        # arguments are passed in, so resolving arguments straight into them
+        # would destroy the parameters before the remaining arguments are read.
+        arg_slots = []
+
         for i, a in enumerate(node.args):
-            self.append("push32 ", hex(i + 0x10))
-            gerr = self.resolve_expr_into_reg(a, i + 0x10)
+            slot = self.allocate_variable(
+                VariableData(f"__arg{i}", 4, True)
+            )
+            gerr = self.resolve_expr_into_reg(a, 0x0f)
             if gerr:
                 return gerr
+            self.append("st32 ", hex(0x0f), " ", hex(slot.location))
+            arg_slots.append(slot)
+
+        for i, slot in enumerate(arg_slots):
+            self.append("push32 ", hex(i + 0x10))
+            self.append("ld32 ", hex(i + 0x10), " ", hex(slot.location))
+
         self.append("call ", node.name)
+
         pop_statements = ""
-        for i in range(len(node.args)):
+        for i in range(len(arg_slots)):
             pop_statements = "pop32 " + hex(i + 0x10) + "\n" + pop_statements
         self.append(pop_statements)
     

@@ -1,0 +1,10 @@
+    Help for FungSH
+
+    help - show this help menu
+    clear - clear the screen
+
+    ls - lists files in the $ROOT directory (Exludes hidden files)
+    la - lists files in the $ROOT directory (Includes hidden files)
+        NOTE: Hidden files start with a '.'
+
+    exit - exit the FungSH shell

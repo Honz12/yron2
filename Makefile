@@ -46,6 +46,7 @@ rm_cb:
 disk.bin:
 	$(PYTHON) disk_maker.py disk.bin new 65536
 	$(PYTHON) fs_maker.py disk.bin format "FungOS"
+	$(PYTHON) fs_maker.py disk.bin fhost os/other/SH_HELP_text.txt .SH_HELP
 
 fs_shell: disk.bin
 	$(PYTHON) fs_maker.py disk.bin

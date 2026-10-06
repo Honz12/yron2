@@ -196,8 +196,13 @@ func fs_read_file_pointer(u32 start_section, u32 destination, u32 bytes, u32 ski
 
     $ROOT itself was already pulled into memory by fs_analyze_disk(...),
     so this only walks that copy and never touches the disk. */
-func fs_list_dir_root_files() {
-    puts("=== FILES IN $ROOT ===\n");
+func fs_list_dir_root_files(u8 show_all) {
+    puts("=== FILES IN $ROOT ===");
+
+    if (show_all) {
+        puts(" (Showing hidden)");
+    }
+    putc('\n');
 
     if (disk_root_dir_entries == 0) {
         puts("$ROOT is not available\n");
@@ -210,7 +215,13 @@ func fs_list_dir_root_files() {
         u32 p_entry_data = p_dir_root + entry * 32;
         u32 file_size = res32(p_entry_data + 28);
 
-        if ((res8(p_entry_data) != 0) & (res8(p_entry_data) != '$')) {
+        u8 shown = (res8(p_entry_data) != 0) & (res8(p_entry_data) != '$');
+
+        if ((show_all == 0) & (res8(p_entry_data) == '.')) {
+            shown = 0;
+        }
+
+        if (shown) {
             puts(p_entry_data);
             puts(" (");
             putu(file_size);
@@ -246,58 +257,38 @@ func fs_list_dir_root_files() {
         wrt32(<value>, <address>) stores <value> at <address>,
         this argument order comes from the 'stp32 <reg> <addr_reg>'
         instruction that 'wrt32' itself is made of.
-
-    NOTE:
-        The compiler keeps function parameters in the argument registers
-        (0x10, 0x11, ...), which get overwritten while the arguments of a
-        nested call are being set up. Every parameter is therefore copied
-        into a local variable (those live in the data section) right at the
-        start of the functions below.
 */
 
 func alloc_get_free_section_size(u32 free_section_start) {
-    u32 section = free_section_start;
-
-    return res32(section);
+    return res32(free_section_start);
 }
 
 func alloc_set_free_section_size(u32 free_section_start, u32 size) {
-    u32 section = free_section_start;
-    u32 value = size;
-
-    wrt32(value, section);
+    wrt32(size, free_section_start);
 }
 
 func alloc_get_next_free_section(u32 free_section_start) {
-    u32 section = free_section_start + 32;
-
-    return res32(section);
+    return res32(free_section_start + 32);
 }
 
 func alloc_set_next_free_section(u32 free_section_start, u32 next_free_section) {
-    u32 section = free_section_start + 32;
-    u32 value = next_free_section;
-
-    wrt32(value, section);
+    wrt32(next_free_section, free_section_start + 32);
 }
 
 /* Turns everything from 'heap_absolute_start' up to the top of the RAM
     into one single free section. */
 func alloc_setup(u32 heap_absolute_start) {
-    u32 absolute_start = heap_absolute_start;
-    u32 section = absolute_start - __get_MS();
+    u32 section = heap_absolute_start - __get_MS();
 
     allocator_first_free = section;
 
-    alloc_set_free_section_size(section, 64 * 1024 * 1024 - absolute_start);
+    alloc_set_free_section_size(section, 64 * 1024 * 1024 - heap_absolute_start);
     alloc_set_next_free_section(section, 0);
 }
 
 /* Allocates 'size' bytes of memory.
     RETURNS: pointer to the allocated memory, 0 when out of memory. */
-func malloc(u32 size) {
-    u32 alloc_size = size;
-
+func malloc(u32 alloc_size) {
     if (alloc_size < 64) {
         puts("Invalid malloc(...) call:\n\tminimum alloc size is 64,\n\tgot ");
         putu(alloc_size);
@@ -365,10 +356,7 @@ func malloc(u32 size) {
 /* Returns 'size' bytes of memory located at 'pointer' back into the heap.
     'size' has to be the very same amount of bytes that was
     requested from malloc(...) for that pointer. */
-func mfree(u32 pointer, u32 size) {
-    u32 freed_pointer = pointer;
-    u32 freed_size = size;
-
+func mfree(u32 freed_pointer, u32 freed_size) {
     if (freed_pointer == 0) {
         return;
     }
@@ -395,7 +383,8 @@ func mfree(u32 pointer, u32 size) {
     putc('\n');*/
 }
 
-func term_clear(u32 lines) {
+func term_clear() {
+    u32 lines = 25;
     while (lines > 0) {
         putc('\n');
         lines = --lines;
@@ -422,9 +411,71 @@ func streq(u32 s1, u32 s2) {
     }
 }
 
+func fs_find_file_entry_idx(u32 p_name) {
+    if (disk_root_dir_entries == 0) {
+        puts("$ROOT is not available\n");
+        return 0;
+    }
+
+    u32 entry = 0;
+
+    while (entry < disk_root_dir_entries) {
+        u32 p_entry_data = p_dir_root + entry * 32;
+
+        if (streq(p_entry_data, p_name)) {
+            return entry;
+        }
+        entry = ++entry;
+    }
+
+    return 0xFFFFFFFF;
+}
+
+func fs_find_file_pointer(u32 entry_idx) {
+    u32 p_entry_data = p_dir_root + entry_idx * 32;
+    return res32(p_entry_data + 24);
+}
+
+func fs_find_file_size(u32 entry_idx) {
+    u32 p_entry_data = p_dir_root + entry_idx * 32;
+    return res32(p_entry_data + 28);
+}
+
+func fs_print_file(u32 p_name) {
+    u32 file_entry_idx = fs_find_file_entry_idx(p_name);
+    if (file_entry_idx == 0xFFFFFFFF) {
+        return 1;
+    }
+    u32 file_size = fs_find_file_size(file_entry_idx);
+
+    u32 allocated_file_memory = malloc(file_size + 1); 
+
+    fs_read_file_pointer(
+        fs_find_file_pointer(file_entry_idx),
+        allocated_file_memory,
+        file_size,
+        0
+    );
+
+    wrt8(0, allocated_file_memory + file_size);
+
+    puts(allocated_file_memory);
+
+    mfree(allocated_file_memory, file_size + 1);
+
+    return 0;
+}
+
 func fungsh_run(u32 p_command) {
     if (res8(p_command) == 0) {
         return 0;
+    }
+
+    if (streq(p_command, "help")) {
+        putc('\n');
+        u32 ret_code = fs_print_file(".SH_HELP");
+        putc('\n');
+        return ret_code;
     }
 
     if (streq(p_command, "clear")) {
@@ -433,11 +484,17 @@ func fungsh_run(u32 p_command) {
     }
 
     if (streq(p_command, "ls")) {
-        fs_list_dir_root_files();
+        fs_list_dir_root_files(0);
+        return 0;
+    }
+
+    if (streq(p_command, "la")) {
+        fs_list_dir_root_files(1);
         return 0;
     }
 
     if (streq(p_command, "exit")) {
+        puts("Goodbye!\n");
         return 2;
     }
     
@@ -448,54 +505,60 @@ func fungsh_run(u32 p_command) {
     return 1;
 }
 
+func readln(u32 buffer, u16 size) {
+    u16 caret = 0;
+
+    while (1) {
+        u8 c = getc();
+
+        if (c == '\n') {
+            putc('\n');
+            return 0;
+        }
+        else if (c == '\b') {
+            if (caret > 0) {
+                caret = --caret;
+                wrt8(0, buffer + caret);
+                putc('\b');
+                putc(' ');
+                putc('\b');
+            }
+            else putc('\a');
+        }
+        else {
+            if (caret < size - 1) {
+                wrt8(c, buffer + caret);
+                caret = ++caret;
+                wrt8(0, buffer + caret);
+                putc(c);
+            }
+            else putc('\a');
+        }
+    }
+    return 0;
+}
+
 func shell() {
     u32 command = alc(32);
-    u16 caret = 0;
     
     while (1) {
         puts("FungSH $ ");
-        u8 typing = 1;
 
-        while (typing) {
-            u8 c = getc();
+        readln(command, 32);
 
-            if (c == '\n') {
-                putc('\n');
-                u8 exit_c = fungsh_run(command);
+        u8 exit_c = fungsh_run(command);
 
-                if (exit_c == 0) {}
-                else if (exit_c == 1)
-                    puts("[FAILED 0x01]\n");
-                else if (exit_c == 2) {
-                    puts("[EXIT 0x02]");
-                    return 0;
-                }
-                else {
-                    puts("[FAILED UNKNOWN EXIT CODE]\n");
-                }
-                typing = 0;
-                caret = 0;
-                wrt8(0, command);
-            }
-            else if (c == '\b') {
-                if (caret > 0) {
-                    caret = --caret;
-                    wrt8(0, command + caret);
-                    putc('\b');
-                    putc(' ');
-                    putc('\b');
-                }
-                else putc('\a');
-            }
-            else {
-                if (caret < 31) {
-                    wrt8(c, command + caret);
-                    caret = ++caret;
-                    wrt8(0, command + caret);
-                    putc(c);
-                }
-                else putc('\a');
-            }
+        wrt8(0, command);
+
+        if (exit_c == 0) {}
+        else if (exit_c == 1)
+            puts("[FAILED 0x01]\n");
+        else if (exit_c == 2) {
+            puts("[EXIT 0x02]\n");
+            return 0;
+        }
+        else {
+            puts("[FAILED UNKNOWN EXIT CODE]\n");
         }
     }
 }
@@ -518,7 +581,7 @@ func main() {
     
     puts("[SETUP] Done\n");
 
-    term_clear(25);
+    term_clear();
 
     // Main code
     
@@ -544,22 +607,11 @@ func main() {
     putu(disk_root_dir_sections);
     puts("\n\n");
 
-/*
-    puts("\nYou can now type to test your keyboard, press ENTER to exit.\n");
-
-    u8 keyboard_test_running = 1;
-    while (keyboard_test_running) {
-        u8 c = getc();
-        if (c == '\n') {
-            keyboard_test_running = 0;
-        }
-        putc(c);
-    }
-
-    puts("HALTING\n");
-*/
-
     shell();
 
     fs_release_dir_root();
+
+    puts("Press ANY to restart ...");
+    getc();
+    __ljump(0, 0); // Restart
 }

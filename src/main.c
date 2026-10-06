@@ -26,11 +26,11 @@ bool g_plain_mode = false;
 #define INT_GEN_ERR 0x00
 #define INT_INV_RAM_ADDR_ERR 0x01
 
-#define DISPLAY_TERM_WIDTH 55
-#define DISPLAY_TERM_HEIGHT 20
+#define DISPLAY_TERM_WIDTH 80
+#define DISPLAY_TERM_HEIGHT 25
 
-#define DISPLAY_WIDTH 80
-#define DISPLAY_HEIGHT 25
+#define DISPLAY_WIDTH DISPLAY_TERM_WIDTH
+#define DISPLAY_HEIGHT DISPLAY_TERM_HEIGHT
 
 char *instruction_names[256] = {
     [0x00] = "NOP",
@@ -1662,6 +1662,7 @@ int main(int argc, char *argv[]) {
         keypad(stdscr, true);
         nodelay(stdscr, true);
         curs_set(0);
+        raw();
 
         if (has_colors() == false) {
             endwin();
@@ -1768,7 +1769,10 @@ int main(int argc, char *argv[]) {
 
     printf("Processed %lu ticks.\n", tick);
 
-    if (!g_plain_mode) endwin();
+    if (!g_plain_mode) {
+        cbreak();
+        endwin();
+    }
 
     free_sim_data(cpu_data, devices_data, display_data);
 }
