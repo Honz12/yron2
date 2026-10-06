@@ -135,7 +135,11 @@ typedef struct {
     union {
         struct {
             int caret;
-            unsigned char term_chars[DISPLAY_TERM_WIDTH * DISPLAY_TERM_HEIGHT];
+            uint8_t current_flags;
+            struct {
+                unsigned char c;
+                uint8_t flags;
+            } term_chars[DISPLAY_TERM_WIDTH * DISPLAY_TERM_HEIGHT];
         } term_mode;
     } data;
 } DisplayData;
@@ -156,14 +160,11 @@ void init_display_data(DisplayData *display_data) {
 
     display_data->data.term_mode.caret = 0;
 
-    // NOTE: DISPLAY_* is the full display size (e.g. for a future RGB display),
-    // DISPLAY_TERM_* is the size of the simulated terminal. term_chars backs
-    // the terminal, so it is sized by DISPLAY_TERM_* (as everywhere else:
-    // display_terminal_mode_putc and tick_display).
-    memset(
-        display_data->data.term_mode.term_chars, ' ',
-        sizeof display_data->data.term_mode.term_chars
-    );
+    display_data->data.term_mode.current_flags = 0;
+    for (int i = 0; i < DISPLAY_TERM_WIDTH * DISPLAY_TERM_HEIGHT; i++) {
+        display_data->data.term_mode.term_chars[i].c = ' ';
+        display_data->data.term_mode.term_chars[i].flags = display_data->data.term_mode.current_flags;
+    }
 
     display_data->display_window = newwin(display_window_h, display_window_w, 3, 0);
     display_data->menu_open = 0;
@@ -188,23 +189,20 @@ void display_terminal_mode_putc(DisplayData *display_data, char c) {
         }
         else {
             if (caret < max_chars) {
-                display_data->data.term_mode.term_chars[caret] = c;
+                display_data->data.term_mode.term_chars[caret].c = c;
+                display_data->data.term_mode.term_chars[caret].flags = display_data->data.term_mode.current_flags;
             }
             caret++;
         }
 
         while (caret >= max_chars) {
-            memmove(
-                display_data->data.term_mode.term_chars,
-                display_data->data.term_mode.term_chars + DISPLAY_TERM_WIDTH,
-                DISPLAY_TERM_WIDTH * (DISPLAY_TERM_HEIGHT - 1)
-            );
-
-            memset(
-                display_data->data.term_mode.term_chars + DISPLAY_TERM_WIDTH * (DISPLAY_TERM_HEIGHT - 1),
-                ' ',
-                DISPLAY_TERM_WIDTH
-            );
+            for (int i = 0; i < DISPLAY_TERM_WIDTH * (DISPLAY_TERM_HEIGHT - 1); i++) {
+                display_data->data.term_mode.term_chars[i] = display_data->data.term_mode.term_chars[i + DISPLAY_TERM_WIDTH];
+            }
+            for (int i = DISPLAY_TERM_WIDTH * (DISPLAY_TERM_HEIGHT - 1); i < DISPLAY_TERM_WIDTH * DISPLAY_TERM_HEIGHT; i++) {
+                display_data->data.term_mode.term_chars[i].c = ' ';
+                display_data->data.term_mode.term_chars[i].flags = display_data->data.term_mode.current_flags;
+            }
 
             caret -= DISPLAY_TERM_WIDTH;
         }
@@ -408,6 +406,12 @@ void snd_to_device(DevicesData *devices_data, DisplayData *display_data, uint32_
                 else {
                     display_terminal_mode_putc(display_data, c);
                 }
+            }
+            break;
+    
+        case 4: // Terminal IO style device
+            {
+                display_data->data.term_mode.current_flags = msg;
             }
             break;
         
@@ -1365,7 +1369,14 @@ void tick_display(DisplayData *display_data, CpuData *cpu_data, DevicesData *dev
         for (int y = 0; y < DISPLAY_TERM_HEIGHT; y++) {
             wmove(display_w, 1 + y + offset_y, 1 + offset_x);
             for (int x = 0; x < DISPLAY_TERM_WIDTH; x++) {
-                waddch(display_w, display_data->data.term_mode.term_chars[x + y * DISPLAY_TERM_WIDTH]);
+                uint8_t flags = display_data->data.term_mode.term_chars[x + y * DISPLAY_TERM_WIDTH].flags;
+                if ((flags & 1) == 1) {
+                    wattron(display_w, A_REVERSE);
+                }
+                waddch(display_w, display_data->data.term_mode.term_chars[x + y * DISPLAY_TERM_WIDTH].c);
+                if ((flags & 1) == 1) {
+                    wattroff(display_w, A_REVERSE);
+                }
             }
         }
     }
