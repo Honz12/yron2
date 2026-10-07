@@ -11,4 +11,5 @@
     la    - lists files in the $ROOT directory (Includes hidden files)
             NOTE: Hidden files start with a '.'
     read  - reads a file
+    raw   - hexdumps a file
     run   - execute a program file
