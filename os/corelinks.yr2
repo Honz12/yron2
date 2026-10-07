@@ -2,7 +2,6 @@
 
 halt:
     int 0x10
-    ret
 
 putc:
     push32 0x0f
@@ -67,6 +66,33 @@ disk_seek:
     pop32 0x0f
     ret
 
+set_process_ret:
+    push32 0x0f
+    ldi8 0x0f 7
+    int 0x11
+    pop32 0x0f
+    ret
+
+set_up_exit_code:
+    push32 0x0f
+    ldi8 0x0f 8
+    int 0x11
+    pop32 0x0f
+    ret
+
+get_up_exit_code:
+    push32 0x0f
+    ldi8 0x0f 9
+
+    push32 0x10
+    int 0x11
+    mov 0x10 0x1f
+
+    pop32 0x10
+    pop32 0x0f
+    
+    ret
+
 ; ======= OTHER =======
 
 __get_MS:
@@ -75,6 +101,55 @@ __get_MS:
 
 __ljump:
     ljmp 0x10 0x11
+
+__jump_to_user_code:
+    push32 0x10
+    push32 0x11
+    push32 0x12
+    push32 0x13
+    push32 0x14
+    push32 0x15
+    push32 0x16
+    push32 0x17
+    push32 0x18
+    push32 0x19
+    push32 0x1a
+    push32 0x1b
+    push32 0x1c
+    push32 0x1d
+    push32 0x1e
+    push32 0x1f
+
+    ; Setup kernel process return
+
+    push32 0x10
+    ldi32 0x10 .process_return_pc
+    mov 0x02 0x11
+    call set_process_ret
+    pop32 0x10
+
+    ldi8 0x11 0
+    ljmp 0x10 0x11
+
+.process_return_pc:
+    pop32 0x1f
+    pop32 0x1e
+    pop32 0x1d
+    pop32 0x1c
+    pop32 0x1b
+    pop32 0x1a
+    pop32 0x19
+    pop32 0x18
+    pop32 0x17
+    pop32 0x16
+    pop32 0x15
+    pop32 0x14
+    pop32 0x13
+    pop32 0x12
+    pop32 0x11
+    pop32 0x10
+
+    ret
 
 ; ----------------------------
 ; FUNCTION
@@ -170,6 +245,40 @@ copy_mem:
 .end:
     pop32 0x13
     pop32 0x12
+    pop32 0x11
+    pop32 0x10
+    ret
+
+; ----------------------------------------------------------------------------------------
+; SUBR: termf
+;   Sets the flags of the TERMIO device.
+; PARAMS:
+;   0x10 - flags
+;
+termf:
+    push32 0x11
+
+    ldi8 0x11 4             ; load port of TERMIO STYLE device into 0x11
+    snd 0x11 0x10           ; send character in 0x10 to device 0x11
+
+    pop32 0x11
+    ret
+
+; ----------------------------------------------------------------------------------------
+; SUBR: term_clear
+;   Clears the screen using the TERMIO device.
+;
+term_clear:
+    push32 0x10
+    push32 0x11
+
+    ldi8 0x10 '\n'
+    ldi8 0x11 35
+.loop:
+    call putc
+    dec 0x11
+    jnz .loop 0x11
+.end:
     pop32 0x11
     pop32 0x10
     ret

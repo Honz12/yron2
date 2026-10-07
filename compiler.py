@@ -4,7 +4,6 @@ from sys import exit
 import shutil
 
 OPT_USE_ASCII = False
-OPT_INCLUDE_STD_CODE = True
 OPT_VAR_START_ADDR = 0x05
 
 ASCII_LINES = "||`-"
@@ -1154,82 +1153,11 @@ jmp {PROGRAM_ENTRY_FUNCTION}
 
 """
 
-STD_CODE = f"""
-jmp {PROGRAM_ENTRY_FUNCTION}
-
-; [VARIABLES]
-
-; ----------------------------
-; JUMP POINT
-; halt
-;
-halt:
-    jmp halt
-
-; ----------------------------
-; FUNCTION
-; putc
-;
-putc:
-    push32 0x11
-
-    ldi8 0x11 1
-    snd 0x11 0x10
-
-    pop32 0x11
-    ret
-
-; ----------------------------
-; FUNCTION
-; res8
-;
-res8:
-    ldp8 0x1f 0x10
-    ret
-
-; ----------------------------
-; FUNCTION
-; res16
-;
-res16:
-    ldp16 0x1f 0x10
-    ret
-
-; ----------------------------
-; FUNCTION
-; res32
-;
-res32:
-    ldp32 0x1f 0x10
-    ret
-
-; ----------------------------
-; FUNCTION
-; wrt8
-;
-wrt8:
-    stp8 0x10 0x11
-
-; ----------------------------
-; FUNCTION
-; wrt16
-;
-wrt16:
-    stp16 0x10 0x11
-
-; ----------------------------
-; FUNCTION
-; wrt32
-;
-wrt32:
-    stp32 0x10 0x11
-""".strip() + "\n\n"
-
 class CodeGenerator:
     def __init__(self):
         self.scope = Scope([])
         self.allocator_bytes = []
-        self.generated = STD_CODE if OPT_INCLUDE_STD_CODE else NEEDED_CODE
+        self.generated = NEEDED_CODE
         self.current_indent = 0
         self.verb_output = ""
         self.label_counter = 0
@@ -1546,10 +1474,6 @@ if __name__ == "__main__":
 
         elif multi_arg_mode == "-s":
             symbol_file = a
-            multi_arg_mode = ""
-
-        elif multi_arg_mode == "--include-std-code":
-            OPT_INCLUDE_STD_CODE = a in ("True", "true", "1", "t")
             multi_arg_mode = ""
 
         elif multi_arg_mode == "--var-start-addr":

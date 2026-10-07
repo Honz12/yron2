@@ -37,19 +37,25 @@ func dumph32(u32 v) {
 
 /* Displays a hex dump of a section of RAM. */
 func dump_mem(u32 pointer, u32 num_bytes) {
-    dumph32(pointer + __get_MS());
-    puts(": ");
+    u32 pos = 0;
+    termf((0x0f * 16) | 4);
+    puts("00000000 ");
+    termf(2);
     while (num_bytes > 0) {
         putb(res8(pointer));
         putc(' ');
         num_bytes = --num_bytes;
         pointer = ++pointer;
-        if (num_bytes % 16 == 0) {
+        pos = ++pos;
+        if (pos % 16 == 0) {
             putc('\n');
-            dumph32(pointer + __get_MS());
-            puts(": ");
+            termf((0x0f * 16) | 4);
+            dumph32(pos);
+            putc(' ');
+            termf(2);
         }
     }
+    termf(0);
     putc('\n');
 }
 
@@ -231,6 +237,112 @@ func fs_list_dir_root_files(u8 show_all) {
     }
 }
 
+func fs_find_file_entry_idx(u32 p_name) {
+    if (disk_root_dir_entries == 0) {
+        puts("$ROOT is not available\n");
+        return 0;
+    }
+
+    u32 entry = 0;
+
+    while (entry < disk_root_dir_entries) {
+        u32 p_entry_data = p_dir_root + entry * 32;
+
+        if (streq(p_entry_data, p_name)) {
+            return entry;
+        }
+        entry = ++entry;
+    }
+
+    return 0xFFFFFFFF;
+}
+
+func fs_find_file_pointer(u32 entry_idx) {
+    u32 p_entry_data = p_dir_root + entry_idx * 32;
+    return res32(p_entry_data + 24);
+}
+
+func fs_find_file_size(u32 entry_idx) {
+    u32 p_entry_data = p_dir_root + entry_idx * 32;
+    return res32(p_entry_data + 28);
+}
+
+func fs_print_file(u32 p_name) {
+    u32 file_entry_idx = fs_find_file_entry_idx(p_name);
+    if (file_entry_idx == 0xFFFFFFFF) {
+        return 1;
+    }
+    u32 file_size = fs_find_file_size(file_entry_idx);
+
+    u32 allocated_file_memory = malloc(++file_size); 
+
+    fs_read_file_pointer(
+        fs_find_file_pointer(file_entry_idx),
+        allocated_file_memory,
+        file_size,
+        0
+    );
+
+    wrt8(0, allocated_file_memory + file_size);
+
+    puts(allocated_file_memory);
+
+    mfree(allocated_file_memory, ++file_size);
+
+    return 0;
+}
+
+func fs_dump_raw_file(u32 p_name) {
+    u32 file_entry_idx = fs_find_file_entry_idx(p_name);
+    if (file_entry_idx == 0xFFFFFFFF) {
+        return 1;
+    }
+    u32 file_size = fs_find_file_size(file_entry_idx);
+
+    u32 allocated_file_memory = malloc(file_size); 
+
+    fs_read_file_pointer(
+        fs_find_file_pointer(file_entry_idx),
+        allocated_file_memory,
+        file_size,
+        0
+    );
+
+    dump_mem(allocated_file_memory, file_size);
+    puts("Read ");
+    putu(file_size);
+    puts(" bytes\n");
+
+    mfree(allocated_file_memory, file_size);
+
+    return 0;
+}
+
+func fs_run_file(u32 p_name) {
+    set_up_exit_code(0);
+
+    u32 file_entry_idx = fs_find_file_entry_idx(p_name);
+    if (file_entry_idx == 0xFFFFFFFF) {
+        return 1;
+    }
+    u32 file_size = fs_find_file_size(file_entry_idx);
+
+    u32 allocated_file_memory = malloc(file_size); 
+
+    fs_read_file_pointer(
+        fs_find_file_pointer(file_entry_idx),
+        allocated_file_memory,
+        file_size,
+        0
+    );
+
+    __jump_to_user_code(allocated_file_memory + __get_MS());
+
+    mfree(allocated_file_memory, file_size);
+
+    return get_up_exit_code();
+}
+
 /* ===========================================================================================
                                         ALLOCATOR
 =========================================================================================== */
@@ -383,12 +495,51 @@ func mfree(u32 freed_pointer, u32 freed_size) {
     putc('\n');*/
 }
 
-func term_clear() {
-    u32 lines = 25;
-    while (lines > 0) {
-        putc('\n');
-        lines = --lines;
+func term_test_format() {
+    u8 color = 0;
+
+    puts("         0123456789abcdef\nNormal:  ");
+    while (color < 16) {
+        termf(color * 16);
+        putc('A');
+        color = ++color;
     }
+
+    termf(0);
+    puts("\nReverse: ");
+    
+    color = 0;
+
+    while (color < 16) {
+        termf(color * 16 | 1);
+        putc('A');
+        color = ++color;
+    }
+
+    termf(0);
+    puts("\nBold:    ");
+    
+    color = 0;
+
+    while (color < 16) {
+        termf(color * 16 | 2);
+        putc('A');
+        color = ++color;
+    }
+
+    termf(0);
+    puts("\nItalic:  ");
+    
+    color = 0;
+
+    while (color < 16) {
+        termf(color * 16 | 4);
+        putc('A');
+        color = ++color;
+    }
+
+    termf(0);
+    putc('\n');
 }
 
 func cpu_burn(u32 loops) {
@@ -409,61 +560,6 @@ func streq(u32 s1, u32 s2) {
         s1 = ++s1;
         s2 = ++s2;
     }
-}
-
-func fs_find_file_entry_idx(u32 p_name) {
-    if (disk_root_dir_entries == 0) {
-        puts("$ROOT is not available\n");
-        return 0;
-    }
-
-    u32 entry = 0;
-
-    while (entry < disk_root_dir_entries) {
-        u32 p_entry_data = p_dir_root + entry * 32;
-
-        if (streq(p_entry_data, p_name)) {
-            return entry;
-        }
-        entry = ++entry;
-    }
-
-    return 0xFFFFFFFF;
-}
-
-func fs_find_file_pointer(u32 entry_idx) {
-    u32 p_entry_data = p_dir_root + entry_idx * 32;
-    return res32(p_entry_data + 24);
-}
-
-func fs_find_file_size(u32 entry_idx) {
-    u32 p_entry_data = p_dir_root + entry_idx * 32;
-    return res32(p_entry_data + 28);
-}
-
-func fs_print_file(u32 p_name) {
-    u32 file_entry_idx = fs_find_file_entry_idx(p_name);
-    if (file_entry_idx == 0xFFFFFFFF) {
-        return 1;
-    }
-    u32 file_size = fs_find_file_size(file_entry_idx);
-
-    u32 allocated_file_memory = malloc(file_size + 1); 
-
-    fs_read_file_pointer(
-        fs_find_file_pointer(file_entry_idx),
-        allocated_file_memory,
-        file_size,
-        0
-    );
-
-    wrt8(0, allocated_file_memory + file_size);
-
-    puts(allocated_file_memory);
-
-    mfree(allocated_file_memory, file_size + 1);
-
-    return 0;
 }
 
 func fungsh_run(u32 p_command) {
@@ -504,6 +600,27 @@ func fungsh_run(u32 p_command) {
         readln(file_name, 24);
         
         return fs_print_file(file_name);
+    }
+
+    if (streq(p_command, "raw")) {
+        u32 file_name = alc(24);
+        puts("File name: \a");
+        readln(file_name, 24);
+        
+        return fs_dump_raw_file(file_name);
+    }
+
+    if (streq(p_command, "run")) {
+        u32 file_name = alc(24);
+        puts("File name: \a");
+        readln(file_name, 24);
+        
+        return fs_run_file(file_name);
+    }
+
+    if (streq(p_command, "testf")) {
+        term_test_format();
+        return 0;
     }
     
     puts("Unknown command: ");
@@ -550,7 +667,10 @@ func shell() {
     u32 command = alc(32);
     
     while (1) {
-        puts("FungSH $ ");
+        termf(2);
+        puts("FungSH");
+        termf(0);
+        puts(" $ ");
         
         readln(command, 32);
 

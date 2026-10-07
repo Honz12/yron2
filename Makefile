@@ -23,7 +23,13 @@ cbuild/rom.bin: cbuild/kernel.bin cbuild/main.bin cbuild/
 	cat cbuild/kernel.bin cbuild/main.bin > cbuild/rom.bin
 
 cbuild/main.yr2: os/main.yc cbuild/
-	$(PYTHON) compiler.py os/main.yc -o cbuild/main.yr2 -s test_MAIN.YC_sym.txt --include-std-code false
+	$(PYTHON) compiler.py os/main.yc -o cbuild/main.yr2 -s test_MAIN.YC_sym.txt
+
+cbuild/other/: cbuild/
+	mkdir cbuild/other
+
+cbuild/other/testapp.bin: cbuild/other/ os/other/testapp.yr2 os/corelinks.yr2
+	$(PYTHON) assembler.py os/other/testapp.yr2 os/corelinks.yr2 -o cbuild/other/testapp.bin
 
 cbuild/:
 	mkdir cbuild
@@ -43,10 +49,12 @@ clean:
 rm_cb:
 	rm cbuild/ -fr
 
-disk.bin:
+disk.bin: os/other/SH_HELP_text.txt cbuild/other/testapp.bin
 	$(PYTHON) disk_maker.py disk.bin new 65536
 	$(PYTHON) fs_maker.py disk.bin format "FungOS"
+
 	$(PYTHON) fs_maker.py disk.bin fhost os/other/SH_HELP_text.txt .SH_HELP
+	$(PYTHON) fs_maker.py disk.bin fhost cbuild/other/testapp.bin testapp
 
 fs_shell: disk.bin
 	$(PYTHON) fs_maker.py disk.bin

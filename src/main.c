@@ -26,11 +26,17 @@ bool g_plain_mode = false;
 #define INT_GEN_ERR 0x00
 #define INT_INV_RAM_ADDR_ERR 0x01
 
-#define DISPLAY_TERM_WIDTH 80
-#define DISPLAY_TERM_HEIGHT 25
+#define DISPLAY_TERM_WIDTH 120
+#define DISPLAY_TERM_HEIGHT 35
 
 #define DISPLAY_WIDTH DISPLAY_TERM_WIDTH
 #define DISPLAY_HEIGHT DISPLAY_TERM_HEIGHT
+
+#define COLOR_NORMAL_BRIGHTNESS 750
+#define COLOR_HB_BRIGHTNESS 1000
+
+#define COLOR_BG_BLACK 0
+#define COLOR_HB_BLACK 200
 
 char *instruction_names[256] = {
     [0x00] = "NOP",
@@ -295,7 +301,11 @@ int get_input(CpuData *cpu_data, DisplayData *display_data) {
         }
         if (display_data->menu_open == 1) {
             if (i == ' ') {
-                cpu_data->single_step = true;
+                if (cpu_data->breakpoint_triggered) {
+                    cpu_data->regs[REG_PC]++;
+                    cpu_data->breakpoint_triggered = false;
+                }
+                else cpu_data->single_step = true;
             }
         }
         if (display_data->menu_open == 2) {
@@ -317,7 +327,11 @@ int get_input(CpuData *cpu_data, DisplayData *display_data) {
                 *scroll = *scroll + ram_dump_lines < max_scroll ? *scroll + ram_dump_lines : max_scroll;
             }
             if (i == ' ') {
-                cpu_data->single_step = true;
+                if (cpu_data->breakpoint_triggered) {
+                    cpu_data->regs[REG_PC]++;
+                    cpu_data->breakpoint_triggered = false;
+                }
+                else cpu_data->single_step = true;
             }
             if (i == 'f' || i == 'F') {
                 *scroll = (cpu_data->regs[REG_PC] + cpu_data->regs[REG_MS]) / ram_dump_bytes_per_line;
@@ -1358,10 +1372,6 @@ void tick_display(DisplayData *display_data, CpuData *cpu_data, DevicesData *dev
 
     WINDOW *display_w = display_data->display_window;
 
-    if (display_data->window_selected == 1) {
-        wattron(display_w, COLOR_PAIR(1));
-    }
-
     if (display_data->menu_open == 0) {
         const int offset_x = (DISPLAY_WIDTH - DISPLAY_TERM_WIDTH) / 2;
         const int offset_y = (DISPLAY_HEIGHT - DISPLAY_TERM_HEIGHT) / 2;
@@ -1370,12 +1380,27 @@ void tick_display(DisplayData *display_data, CpuData *cpu_data, DevicesData *dev
             wmove(display_w, 1 + y + offset_y, 1 + offset_x);
             for (int x = 0; x < DISPLAY_TERM_WIDTH; x++) {
                 uint8_t flags = display_data->data.term_mode.term_chars[x + y * DISPLAY_TERM_WIDTH].flags;
-                if ((flags & 1) == 1) {
+                if (flags & 1) {
                     wattron(display_w, A_REVERSE);
                 }
+                if (flags & 2) {
+                    wattron(display_w, A_BOLD);
+                }
+                if (flags & 4) {
+                    wattron(display_w, A_ITALIC);
+                }
+                uint8_t color = flags >> 4;
+                wattron(display_w, COLOR_PAIR(color + 2));
                 waddch(display_w, display_data->data.term_mode.term_chars[x + y * DISPLAY_TERM_WIDTH].c);
-                if ((flags & 1) == 1) {
+                wattroff(display_w, COLOR_PAIR(color + 2));
+                if (flags & 1) {
                     wattroff(display_w, A_REVERSE);
+                }
+                if (flags & 2) {
+                    wattroff(display_w, A_BOLD);
+                }
+                if (flags & 4) {
+                    wattroff(display_w, A_ITALIC);
                 }
             }
         }
@@ -1388,7 +1413,19 @@ void tick_display(DisplayData *display_data, CpuData *cpu_data, DevicesData *dev
             mvwprintw(display_w, 3 + r % (NUM_REGS / 2), 1 + r / (NUM_REGS / 2) * 35, "0x%02x   0x%08x   %12d", r, v, v);
         }
 
+        uint32_t current_pc = cpu_data->regs[REG_MS] + cpu_data->regs[REG_PC];
+
+        if (current_pc < cpu_data->ram_size)
+            mvwprintw(display_w, DISPLAY_HEIGHT - 1, 1, "INST: %-8s (%02x)", instruction_names[cpu_data->ram[current_pc]], cpu_data->ram[current_pc]);
+        else
+            mvwprintw(display_w, DISPLAY_HEIGHT - 1, 1, "INST: ........ (..)");
         mvwprintw(display_w, DISPLAY_HEIGHT, 1, "SPACE to step the simulation");
+        if (cpu_data->breakpoint_triggered) {
+            mvwprintw(display_w, DISPLAY_HEIGHT, DISPLAY_WIDTH - 10, "BREAKPOINT");
+        }
+        else {
+            mvwprintw(display_w, DISPLAY_HEIGHT, DISPLAY_WIDTH - 10, "          ");
+        }
 
         wattron(display_w, A_DIM);
         mvwhline(display_w, 2, 1, 0, 67);
@@ -1401,11 +1438,11 @@ void tick_display(DisplayData *display_data, CpuData *cpu_data, DevicesData *dev
         mvwvline(display_w, 1, 34, 0, NUM_REGS / 2 + 2);
     }
     else if (display_data->menu_open == 2) {
-        for (int y = 0; y < ram_dump_lines; y++) {
+        for (int y = 0; y < (int)ram_dump_lines; y++) {
             uint32_t line_addr = (y + display_data->inbuild_menus_info.ram_view_scroll) * ram_dump_bytes_per_line;
             mvwprintw(display_w, 1 + y, 1, "%08x :", line_addr);
 
-            for (int x = 0; x < ram_dump_bytes_per_line; x++) {
+            for (int x = 0; x < (int)ram_dump_bytes_per_line; x++) {
                 uint32_t byte_addr = line_addr + x;
 
                 if (byte_addr == cpu_data->regs[REG_MS] + cpu_data->regs[REG_PC]) {
@@ -1444,6 +1481,16 @@ void tick_display(DisplayData *display_data, CpuData *cpu_data, DevicesData *dev
         else
             mvwprintw(display_w, DISPLAY_HEIGHT - 1, 1, "INST: ........ (..)");
         mvwprintw(display_w, DISPLAY_HEIGHT, 1, "SPACE to step the simulation | F to jump to current PC");
+        if (cpu_data->breakpoint_triggered) {
+            mvwprintw(display_w, DISPLAY_HEIGHT, DISPLAY_WIDTH - 10, "BREAKPOINT");
+        }
+        else {
+            mvwprintw(display_w, DISPLAY_HEIGHT, DISPLAY_WIDTH - 10, "          ");
+        }
+    }
+
+    if (display_data->window_selected == 1) {
+        wattron(display_w, COLOR_PAIR(1));
     }
 
     box(display_w, 0, 0);
@@ -1467,12 +1514,12 @@ void tick_display(DisplayData *display_data, CpuData *cpu_data, DevicesData *dev
     wattron(menu_bar_w, A_REVERSE);
     mvwprintw(menu_bar_w, 1, 2 + display_data->option_w_selected * 10, "%s", menu_options[display_data->option_w_selected]);
     wattroff(menu_bar_w, A_REVERSE);
+
+    mvprintw(1, DISPLAY_TERM_WIDTH - 5, "%5d", fps);
     
     if (display_data->window_selected == 0) {
         wattroff(menu_bar_w, COLOR_PAIR(1));
     }
-
-    //mvprintw(1, DISPLAY_TERM_WIDTH - 5, "%d", display_data->menu_open);
 
     wrefresh(menu_bar_w);
 
@@ -1688,7 +1735,43 @@ int main(int argc, char *argv[]) {
         }
         start_color();
 
+        init_color(COLOR_WHITE, COLOR_NORMAL_BRIGHTNESS, COLOR_NORMAL_BRIGHTNESS, COLOR_NORMAL_BRIGHTNESS);
+        init_color(COLOR_RED, COLOR_NORMAL_BRIGHTNESS, COLOR_BG_BLACK, COLOR_BG_BLACK);
+        init_color(COLOR_GREEN, COLOR_BG_BLACK, COLOR_NORMAL_BRIGHTNESS, COLOR_BG_BLACK);
+        init_color(COLOR_YELLOW, COLOR_NORMAL_BRIGHTNESS, COLOR_NORMAL_BRIGHTNESS, COLOR_BG_BLACK);
+        init_color(COLOR_BLUE, COLOR_BG_BLACK, COLOR_BG_BLACK, COLOR_NORMAL_BRIGHTNESS);
+        init_color(COLOR_MAGENTA, COLOR_NORMAL_BRIGHTNESS, COLOR_BG_BLACK, COLOR_NORMAL_BRIGHTNESS);
+        init_color(COLOR_CYAN, COLOR_BG_BLACK, COLOR_NORMAL_BRIGHTNESS, COLOR_NORMAL_BRIGHTNESS);
+        init_color(COLOR_BLACK, COLOR_BG_BLACK, COLOR_BG_BLACK, COLOR_BG_BLACK);
+
+        init_color(COLOR_WHITE + 8, COLOR_HB_BRIGHTNESS, COLOR_HB_BRIGHTNESS, COLOR_HB_BRIGHTNESS);
+        init_color(COLOR_RED + 8, COLOR_HB_BRIGHTNESS, COLOR_BG_BLACK, COLOR_BG_BLACK);
+        init_color(COLOR_GREEN + 8, COLOR_BG_BLACK, COLOR_HB_BRIGHTNESS, COLOR_BG_BLACK);
+        init_color(COLOR_YELLOW + 8, COLOR_HB_BRIGHTNESS, COLOR_HB_BRIGHTNESS, COLOR_BG_BLACK);
+        init_color(COLOR_BLUE + 8, COLOR_BG_BLACK, COLOR_BG_BLACK, COLOR_HB_BRIGHTNESS);
+        init_color(COLOR_MAGENTA + 8, COLOR_HB_BRIGHTNESS, COLOR_BG_BLACK, COLOR_HB_BRIGHTNESS);
+        init_color(COLOR_CYAN + 8, COLOR_BG_BLACK, COLOR_HB_BRIGHTNESS, COLOR_HB_BRIGHTNESS);
+        init_color(COLOR_BLACK + 8, COLOR_HB_BLACK, COLOR_HB_BLACK, COLOR_HB_BLACK);
+
         init_pair(1, COLOR_YELLOW, COLOR_BLACK);
+        
+        init_pair(2, COLOR_WHITE, COLOR_BLACK);
+        init_pair(3, COLOR_RED, COLOR_BLACK);
+        init_pair(4, COLOR_GREEN, COLOR_BLACK);
+        init_pair(5, COLOR_YELLOW, COLOR_BLACK);
+        init_pair(6, COLOR_BLUE, COLOR_BLACK);
+        init_pair(7, COLOR_MAGENTA, COLOR_BLACK);
+        init_pair(8, COLOR_CYAN, COLOR_BLACK);
+        init_pair(9, COLOR_BLACK, COLOR_BLACK);
+        
+        init_pair(10, COLOR_WHITE + 8, COLOR_BLACK);
+        init_pair(11, COLOR_RED + 8, COLOR_BLACK);
+        init_pair(12, COLOR_GREEN + 8, COLOR_BLACK);
+        init_pair(13, COLOR_YELLOW + 8, COLOR_BLACK);
+        init_pair(14, COLOR_BLUE + 8, COLOR_BLACK);
+        init_pair(15, COLOR_MAGENTA + 8, COLOR_BLACK);
+        init_pair(16, COLOR_CYAN + 8, COLOR_BLACK);
+        init_pair(17, COLOR_BLACK + 8, COLOR_BLACK);
 
         init_display_data(display_data);
     } else {
@@ -1717,7 +1800,7 @@ int main(int argc, char *argv[]) {
         frames++;
 
         if (g_plain_mode || (display_data->menu_open == 0 && display_data->window_selected == 1)) {
-            for (int si = 0; si < cpu_data->sub_inst_count; si++) {
+            for (int si = 0; si < (int)cpu_data->sub_inst_count; si++) {
                 uint32_t prev_rpc = cpu_data->regs[REG_MS] + cpu_data->regs[REG_PC];
                 if (cpu_data->breakpoint_triggered) {
                     break;

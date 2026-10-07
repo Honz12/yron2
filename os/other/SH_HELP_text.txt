@@ -1,10 +1,14 @@
     Help for FungSH
 
-    help - show this help menu
+    === Other ===
+    help  - show this help menu
     clear - clear the screen
+    testf - test the terminal formating
+    exit  - exit the FungSH shell
 
-    ls - lists files in the $ROOT directory (Exludes hidden files)
-    la - lists files in the $ROOT directory (Includes hidden files)
-        NOTE: Hidden files start with a '.'
-
-    exit - exit the FungSH shell
+    === Filesystem ===
+    ls    - lists files in the $ROOT directory (Exludes hidden files)
+    la    - lists files in the $ROOT directory (Includes hidden files)
+            NOTE: Hidden files start with a '.'
+    read  - reads a file
+    run   - execute a program file

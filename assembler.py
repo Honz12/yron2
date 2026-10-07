@@ -492,7 +492,12 @@ class CodeGenerator:
                         if tokens is None:
                             return
                         code_gen = CodeGenerator(tokens, self.verbose)
-                        code, file_names = code_gen.get_bytes(len(out))
+                        cout = code_gen.get_bytes(len(out))
+
+                        if cout is None:
+                            return
+                        
+                        code, file_names = cout
 
                         if code is None:
                             return
@@ -523,14 +528,19 @@ class CodeGenerator:
                         if tokens is None:
                             return
                         code_gen = CodeGenerator(tokens, self.verbose)
-                        code, file_names = code_gen.get_bytes(len(out))
+                        cout = code_gen.get_bytes(len(out))
+
+                        if cout is None:
+                            return
+                        
+                        code, file_names = cout
 
                         if code is None:
                             return
                         
                         for k in file_names:
-                            #if k not in names:
-                            names[k] = file_names[k]
+                            if k not in names:
+                                names[k] = file_names[k]
                         
                         for b in code:
                             out.append(b)
@@ -621,15 +631,17 @@ if __name__ == "__main__":
     ))
 
     code_gen = CodeGenerator(tokens, verbose)
-    out, _ = code_gen.get_bytes()
+    out = code_gen.get_bytes()
 
     if out is None:
         exit(1)
 
-    for i in out:
+    code, _ = out
+
+    for i in code:
         if not isinstance(i, int):
             print(i.__class__)
             print(i)
 
     with open(output_file, "wb") as of:
-        of.write(bytes(out))
+        of.write(bytes(code))

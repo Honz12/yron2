@@ -17,11 +17,30 @@ ljmp 0x10 0x11
     RAM_INV_ADDR_ERR_TEXT: str "RAM R/W address out of bounds error.\n\0"
     GENERIC_ERR_TEXT: str "Generic error.\n\0"
 
+; USER PROCESS RUNNING DATA
+    USER_PROCESS_RUNNING: d8 0
+    USER_PROCESS_RETURN_PC: d32 0
+    USER_PROCESS_RETURN_MS: d32 0
+    USER_PROCESS_EXIT_CODE: d32 0
+
 ; CODE
 
 halt:
+    ld8 0x10 USER_PROCESS_RUNNING
+    jnz .return_from_process 0x10
 .loop:
     jmp .loop
+.return_from_process:
+    ldi8 0x10 0                         ; set running to 0
+    st8 0x10 USER_PROCESS_RUNNING
+
+    pop32 0x10
+    pop32 0x10
+
+    ld32 0x10 USER_PROCESS_RETURN_PC    ; load return point
+    ld32 0x11 USER_PROCESS_RETURN_MS
+
+    ljmp 0x11 0x10
 
 ; INTERRUPT HANDLERS
 
@@ -66,6 +85,18 @@ syscall_int:
     ldi8 0x0e 6 ; DISK_SEEK
     eq 0x0e 0x0f 0x0e
     jnz .disk_seek 0x0e
+    
+    ldi8 0x0e 7 ; SET_PROCESS_RET
+    eq 0x0e 0x0f 0x0e
+    jnz .set_process_ret 0x0e
+    
+    ldi8 0x0e 8 ; SET_UP_EXIT_CODE
+    eq 0x0e 0x0f 0x0e
+    jnz .set_up_exit_code 0x0e
+    
+    ldi8 0x0e 9 ; GET_UP_EXIT_CODE
+    eq 0x0e 0x0f 0x0e
+    jnz .get_up_exit_code 0x0e
 .end:
     pop32 0x0e
     iret
@@ -89,6 +120,15 @@ syscall_int:
     jmp .end
 .disk_seek:
     call disk_seek
+    jmp .end
+.set_process_ret:
+    call set_process_ret
+    jmp .end
+.set_up_exit_code:
+    call set_up_exit_code
+    jmp .end
+.get_up_exit_code:
+    call get_up_exit_code
     jmp .end
 
 ; KERNEL FUNCTIONS
@@ -343,8 +383,8 @@ disk_write:
 
 ; ----------------------------------------------------------------------------------------
 ; SUBR: disk_seek
-;   Seks to a certain position in the disk
-; RETURNS:
+;   Seeks to a certain position in the disk
+; PARAMS:
 ;   0x10 - byte
 ;
 disk_seek:
@@ -352,6 +392,44 @@ disk_seek:
     ldi8 0x11 0x02 ; "DISKIO - Seek" port
     snd 0x11 0x10
     pop32 0x11
+    ret
+
+; ----------------------------------------------------------------------------------------
+; SUBR: set_process_ret
+;   Sets the process return values
+; PARAMS:
+;   0x10 - return PC
+;   0x11 - return MS
+;
+set_process_ret:
+    st32 0x10 USER_PROCESS_RETURN_PC
+    st32 0x11 USER_PROCESS_RETURN_MS
+
+    push32 0x10
+    ldi8 0x10 1
+    st8 0x10 USER_PROCESS_RUNNING
+    pop32 0x10
+
+    ret
+
+; ----------------------------------------------------------------------------------------
+; SUBR: set_up_exit_code
+;   Sets the user process exit code
+; PARAMS:
+;   0x10 - code
+;
+set_up_exit_code:
+    st32 0x10 USER_PROCESS_EXIT_CODE
+    ret
+
+; ----------------------------------------------------------------------------------------
+; SUBR: get_process_ret
+;   Gets the user process exit code
+; RETURNS:
+;   0x10 - code
+;
+get_up_exit_code:
+    ld32 0x10 USER_PROCESS_EXIT_CODE
     ret
 
 ; IVT
