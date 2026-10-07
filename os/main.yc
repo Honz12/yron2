@@ -497,6 +497,14 @@ func fungsh_run(u32 p_command) {
         puts("Goodbye!\n");
         return 2;
     }
+
+    if (streq(p_command, "read")) {
+        u32 file_name = alc(24);
+        puts("File name: \a");
+        readln(file_name, 24);
+        
+        return fs_print_file(file_name);
+    }
     
     puts("Unknown command: ");
     puts(p_command);
@@ -543,7 +551,7 @@ func shell() {
     
     while (1) {
         puts("FungSH $ ");
-
+        
         readln(command, 32);
 
         u8 exit_c = fungsh_run(command);

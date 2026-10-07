@@ -173,7 +173,3 @@ copy_mem:
     pop32 0x11
     pop32 0x10
     ret
-
-
-set_term_style:
-    push32 0x11
