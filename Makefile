@@ -1,10 +1,15 @@
 CC=gcc
 PYTHON=python
 
-.PHONY: run clean rm_cb os fs_shell 
+.PHONY: run clean rm_cb os fs_shell full 
+
+full: build/exe build/yron2.exe
 
 build/exe: build/ src/main.c src/helpers.c
 	$(CC) src/main.c src/helpers.c src/cjson/cJSON.c -o build/exe -lncurses
+
+build/yron2.exe: build/ src/main.c src/helpers.c
+	$(CC) src/main.c src/helpers.c src/cjson/cJSON.c -o build/yron2.exe -lncursesw
 
 build/:
 	mkdir build
@@ -36,6 +41,9 @@ cbuild/:
 
 run: build/exe cbuild/rom.bin disk.bin
 	./build/exe cbuild/rom.bin
+
+runw: build/yron2.exe cbuild/rom.bin disk.bin
+	./build/yron2.exe cbuild/rom.bin
 
 test: build/exe cbuild/rom.bin disk.bin
 	./build/exe cbuild/rom.bin -p -timeout 100000

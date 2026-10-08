@@ -6,7 +6,13 @@
 #include <string.h>
 #include <sys/types.h>
 #include <time.h>
-#include <ncurses.h>
+
+#ifdef _WIN32
+    #include <ncurses/ncurses.h>  // Do this because MSYS MINGW must be special :D
+#else
+    #include <ncurses.h> // The normal way.
+#endif
+
 #include "helpers.h"
 #include "cjson/cJSON.h"
 
@@ -1390,9 +1396,20 @@ void tick_display(DisplayData *display_data, CpuData *cpu_data, DevicesData *dev
                     wattron(display_w, A_ITALIC);
                 }
                 uint8_t color = flags >> 4;
+                uint32_t char_idx = x + y * DISPLAY_TERM_WIDTH;
+
+                if (char_idx == display_data->data.term_mode.caret) {
+                    wattron(display_w, A_UNDERLINE);
+                }
+
                 wattron(display_w, COLOR_PAIR(color + 2));
-                waddch(display_w, display_data->data.term_mode.term_chars[x + y * DISPLAY_TERM_WIDTH].c);
+                waddch(display_w, display_data->data.term_mode.term_chars[char_idx].c);
                 wattroff(display_w, COLOR_PAIR(color + 2));
+
+                if (char_idx == display_data->data.term_mode.caret) {
+                    wattroff(display_w, A_UNDERLINE);
+                }
+
                 if (flags & 1) {
                     wattroff(display_w, A_REVERSE);
                 }
@@ -1611,6 +1628,10 @@ struct yron2config *load_config_json_file() {
 }
 
 int main(int argc, char *argv[]) {
+    #ifdef _WIN32
+        printf("NOTE: Consider this a message for help, please make Windows POSIX compliant, i need ncurses.");
+    #endif
+
     struct yron2config *config = load_config_json_file();
 
     if (config == NULL) {

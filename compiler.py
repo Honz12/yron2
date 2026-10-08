@@ -80,6 +80,16 @@ TT_KW_ASM = "kw_asm"
 TT_KW_INCLUDE = "kw_include"
 
 @dataclass
+class Position:
+    i: int
+    row: int
+    col: int
+    file: str
+
+    def copy(self):
+        return Position(self.i, self.row, self.col, self.file)
+
+@dataclass
 class Token:
     t: str
     v: Any
@@ -90,16 +100,6 @@ class Token:
         if self.v is not None:
             return f"({self.t.upper()}:{repr(self.v)})"
         return f"({self.t.upper()})"
-
-@dataclass
-class Position:
-    i: int
-    row: int
-    col: int
-    file: str
-
-    def copy(self):
-        return Position(self.i, self.row, self.col, self.file)
 
 @dataclass
 class CompilerError:
@@ -434,18 +434,6 @@ class VariableData:
         return o
 
 @dataclass
-class DefineData:
-    name: str
-    value: AstNode
-
-    def __str__(self):
-        o += "DefineData"
-        o += AstNode.format_as_child(repr(self.name), False)
-        o += AstNode.format_as_child(self.value, True)
-
-CSET = ASCII_LINES if OPT_USE_ASCII else UTF_LINES
-
-@dataclass
 class AstNode:
     start_pos: Position
     end_pos: Position
@@ -473,6 +461,18 @@ class AstNode:
 
     def force_optimize(self):
         return self.optimize()
+
+@dataclass
+class DefineData:
+    name: str
+    value: AstNode
+
+    def __str__(self):
+        o += "DefineData"
+        o += AstNode.format_as_child(repr(self.name), False)
+        o += AstNode.format_as_child(self.value, True)
+
+CSET = ASCII_LINES if OPT_USE_ASCII else UTF_LINES
 
 @dataclass
 class LiteralIntNode(AstNode):
@@ -763,7 +763,7 @@ class IncludeStatementNode(AstNode):
 
     def __str__(self):
         o += f"IncludeStatement ({'YR2' if self.is_asm else 'YC'})"
-        o += self.format_as_child(repr(path))
+        o += self.format_as_child(repr(self.path))
 
 VARIBLE_TYPES = {
     TT_KW_U8: (1, False),
@@ -1134,7 +1134,7 @@ class VariableSymbol:
 @dataclass
 class Scope:
     symbols: list[VariableSymbol]
-    parent: Scope | None = None
+    parent: None = None
 
     def search_for_symbol(self, name: str):
         for s in self.symbols:
@@ -1321,7 +1321,7 @@ class CodeGenerator:
             self.allocator_bytes += [((node.cells[i].number if isinstance(node.cells[i], LiteralIntNode) else 0x00) if i < len(node.cells) else 0x00) for i in range(space.number)]
         elif isinstance(node, UnaryOpNode):
             self.resolve_expr_into_reg(node.value, reg)
-            self.append(f"{"inc" if node.optok.t == TT_INC else "dec"} ", hex(reg))
+            self.append(f"{'inc' if node.optok.t == TT_INC else 'dec'} ", hex(reg))
         else:
             return CompilerError(f"CODE GEN - AST node {type(node).__name__} can't be an expression.", node.start_pos)
 
@@ -1506,7 +1506,7 @@ if __name__ == "__main__":
         else:
             input_files.append(a)
 
-    print(f"\nInput files: {", ".join(input_files)}")
+    print(f"\nInput files: {', '.join(input_files)}")
     print(f"Output file: {output_file}")
     print(f"Symbol file: {symbol_file}\n")
 
