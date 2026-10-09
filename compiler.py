@@ -78,6 +78,14 @@ TT_KW_DEF = "kw_def"
 TT_KW_ASM = "kw_asm"
 TT_KW_INCLUDE = "kw_include"
 
+TT_KW_RES8 = "kw_res8"
+TT_KW_RES16 = "kw_res16"
+TT_KW_RES32 = "kw_res32"
+
+TT_KW_WRT8 = "kw_wrt8"
+TT_KW_WRT16 = "kw_wrt16"
+TT_KW_WRT32 = "kw_wrt32"
+
 @dataclass
 class Token:
     t: str
@@ -143,6 +151,14 @@ KEYWORD_MAP = {
 
     "asm": TT_KW_ASM,
     "include": TT_KW_INCLUDE,
+
+    "res8": TT_KW_RES8,
+    "res16": TT_KW_RES16,
+    "res32": TT_KW_RES32,
+
+    "wrt8": TT_KW_WRT8,
+    "wrt16": TT_KW_WRT16,
+    "wrt32": TT_KW_WRT32,
 }
 
 SYMBOL_MAP = {
@@ -762,7 +778,27 @@ class IncludeStatementNode(AstNode):
 
     def __str__(self):
         o += f"IncludeStatement ({'YR2' if self.is_asm else 'YC'})"
-        o += self.format_as_child(repr(path))
+        o += self.format_as_child(repr(self.path), True)
+
+@dataclass
+class MemoryResolveNode(AstNode):
+    addr: AstNode
+    size: int
+
+    def __str__(self):
+        o += f"MemoryResolve ({self.size} {'byte' if self.size == 1 else 'bytes'})"
+        o += self.format_as_child(repr(sefl.addr), True)
+
+@dataclass
+class MemoryWriteNode(AstNode):
+    value: AstNode
+    addr: AstNode
+    size: int
+
+    def __str__(self):
+        o += f"MemoryWrite ({self.size} {'byte' if self.size == 1 else 'bytes'})"
+        o += self.format_as_child(repr(sefl.addr), False, "ADDR")
+        o += self.format_as_child(repr(sefl.value), True, "VALUE")
 
 VARIBLE_TYPES = {
     TT_KW_U8: (1, False),
@@ -953,7 +989,24 @@ class Parser:
             expr = self.make_expr()
             return DefineStatementNode(base_token.start, self.consume(TT_SEMI).end, name, expr)
 
-        elif base_token.t in (TT_INT, TT_LPAREN, TT_IDEN, TT_KW_LOC, TT_KW_ALC, TT_INC, TT_DEC):
+        elif base_token.t in (
+            TT_INT,
+            TT_LPAREN,
+            TT_IDEN,
+
+            TT_KW_LOC,
+            TT_KW_ALC,
+
+            TT_INC,
+            TT_DEC,
+
+            TT_KW_RES8,
+            TT_KW_RES16,
+            TT_KW_RES32,
+            TT_KW_WRT8,
+            TT_KW_WRT16,
+            TT_KW_WRT32,
+        ):
             expr = self.make_expr()
             expr.end_pos = self.consume(TT_SEMI)
             return expr
@@ -1089,6 +1142,28 @@ class Parser:
 
             return AllocateSpaceNode(t.start, t.end, LiteralIntNode(t.start, t.end, len(values)), values)
         
+        if self.t.t in (TT_KW_RES8, TT_KW_RES16, TT_KW_RES32):
+            size = [1, 2, 4][(TT_KW_RES8, TT_KW_RES16, TT_KW_RES32).index(self.t.t)]
+            t = self.t
+            self.advance()
+            self.consume(TT_LPAREN)
+
+            addr = self.make_expr()
+
+            return MemoryResolveNode(t.start, self.consume(TT_RPAREN).end, addr, size)
+        
+        if self.t.t in (TT_KW_WRT8, TT_KW_WRT16, TT_KW_WRT32):
+            size = [1, 2, 4][(TT_KW_WRT8, TT_KW_WRT16, TT_KW_WRT32).index(self.t.t)]
+            t = self.t
+            self.advance()
+            self.consume(TT_LPAREN)
+
+            value = self.make_expr()
+            self.consume(TT_COMMA)
+            addr = self.make_expr()
+            
+            return MemoryWriteNode(t.start, self.consume(TT_RPAREN).end, value, addr, size)
+
         if self.t.t in (TT_INC, TT_DEC):
             t = self.t
             self.advance()
@@ -1275,13 +1350,13 @@ class CodeGenerator:
             gerr = self.resolve_expr_into_reg(node.left, 0x0d)
             if gerr: return gerr
 
-            if isinstance(node.right, BinOpNone):
+            if isinstance(node.right, BinOpNone) or isinstance(node.right, MemoryResolveNode):
                 self.append("push32 0x0d")
 
             gerr = self.resolve_expr_into_reg(node.right, 0x0e)
             if gerr: return gerr
 
-            if isinstance(node.right, BinOpNone):
+            if isinstance(node.right, BinOpNone) or isinstance(node.right, MemoryResolveNode):
                 self.append("pop32 0x0d")
 
             insts = {
@@ -1397,6 +1472,9 @@ class CodeGenerator:
         elif isinstance(node, UnaryOpNode):
             self.resolve_expr_into_reg(node.value, reg)
             self.append(f"{"inc" if node.optok.t == TT_INC else "dec"} ", hex(reg))
+        elif isinstance(node, MemoryResolveNode):
+            self.resolve_expr_into_reg(node.addr, reg)
+            self.append(f"ldp{8 * node.size} ", hex(reg), " ", hex(reg))
         else:
             return CompilerError(f"CODE GEN - AST node {type(node).__name__} can't be an expression.", node.start_pos)
 
@@ -1532,6 +1610,14 @@ class CodeGenerator:
 
     def gen_BreakpointStatementNode(self, node: BreakpointStatementNode):
         self.append("d8 0xFF")
+    
+    def gen_MemoryWriteNode(self, node: MemoryWriteNode):
+        self.resolve_expr_into_reg(node.value, 0x0d)
+        self.append("push32 0x0d")
+        self.resolve_expr_into_reg(node.addr, 0x0e)
+        self.append("pop32 0x0d")
+
+        self.append(f"stp{node.size * 8} 0x0d 0x0e")
 
 if __name__ == "__main__":
     from sys import argv
