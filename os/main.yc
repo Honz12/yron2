@@ -100,7 +100,7 @@ func fs_analyze_disk() {
         disk_root_dir_size = 0;
         disk_root_dir_entries = 0;
 
-        return;
+        return 0;
     }
 
     fs_read_file_pointer(disk_dir_root_pointer, p_dir_root, disk_root_dir_size, 0);
@@ -110,7 +110,7 @@ func fs_analyze_disk() {
     so that it stops occupying memory once it is not needed anymore. */
 func fs_release_dir_root() {
     if (p_dir_root == 0) {
-        return;
+        return 0;
     }
 
     mfree(p_dir_root, disk_root_dir_size);
@@ -161,7 +161,7 @@ func fs_read_file_pointer(u32 start_section, u32 destination, u32 bytes, u32 ski
     }
 
     if (start_section == 0) {
-        return;
+        return 0;
     }
 
     if (skip_bytes > 0) {
@@ -212,7 +212,7 @@ func fs_list_dir_root_files(u8 show_all) {
 
     if (disk_root_dir_entries == 0) {
         puts("$ROOT is not available\n");
-        return;
+        return 0;
     }
 
     u32 entry = 0;
@@ -470,7 +470,7 @@ func malloc(u32 alloc_size) {
     requested from malloc(...) for that pointer. */
 func mfree(u32 freed_pointer, u32 freed_size) {
     if (freed_pointer == 0) {
-        return;
+        return 0;
     }
 
     if (freed_size < 64) {

@@ -4,7 +4,6 @@ from sys import exit
 import shutil
 
 OPT_USE_ASCII = False
-OPT_VAR_START_ADDR = 0x05
 
 ASCII_LINES = "||`-"
 UTF_LINES = "│├╰─"
@@ -80,16 +79,6 @@ TT_KW_ASM = "kw_asm"
 TT_KW_INCLUDE = "kw_include"
 
 @dataclass
-class Position:
-    i: int
-    row: int
-    col: int
-    file: str
-
-    def copy(self):
-        return Position(self.i, self.row, self.col, self.file)
-
-@dataclass
 class Token:
     t: str
     v: Any
@@ -100,6 +89,16 @@ class Token:
         if self.v is not None:
             return f"({self.t.upper()}:{repr(self.v)})"
         return f"({self.t.upper()})"
+
+@dataclass
+class Position:
+    i: int
+    row: int
+    col: int
+    file: str
+
+    def copy(self):
+        return Position(self.i, self.row, self.col, self.file)
 
 @dataclass
 class CompilerError:
@@ -434,6 +433,18 @@ class VariableData:
         return o
 
 @dataclass
+class DefineData:
+    name: str
+    value: AstNode
+
+    def __str__(self):
+        o += "DefineData"
+        o += AstNode.format_as_child(repr(self.name), False)
+        o += AstNode.format_as_child(self.value, True)
+
+CSET = ASCII_LINES if OPT_USE_ASCII else UTF_LINES
+
+@dataclass
 class AstNode:
     start_pos: Position
     end_pos: Position
@@ -461,18 +472,6 @@ class AstNode:
 
     def force_optimize(self):
         return self.optimize()
-
-@dataclass
-class DefineData:
-    name: str
-    value: AstNode
-
-    def __str__(self):
-        o += "DefineData"
-        o += AstNode.format_as_child(repr(self.name), False)
-        o += AstNode.format_as_child(self.value, True)
-
-CSET = ASCII_LINES if OPT_USE_ASCII else UTF_LINES
 
 @dataclass
 class LiteralIntNode(AstNode):
@@ -763,7 +762,7 @@ class IncludeStatementNode(AstNode):
 
     def __str__(self):
         o += f"IncludeStatement ({'YR2' if self.is_asm else 'YC'})"
-        o += self.format_as_child(repr(self.path))
+        o += self.format_as_child(repr(path))
 
 VARIBLE_TYPES = {
     TT_KW_U8: (1, False),
@@ -1134,7 +1133,7 @@ class VariableSymbol:
 @dataclass
 class Scope:
     symbols: list[VariableSymbol]
-    parent: None = None
+    parent: Scope | None = None
 
     def search_for_symbol(self, name: str):
         for s in self.symbols:
@@ -1156,18 +1155,20 @@ jmp {PROGRAM_ENTRY_FUNCTION}
 class CodeGenerator:
     def __init__(self):
         self.scope = Scope([])
-        self.allocator_bytes = []
         self.generated = NEEDED_CODE
         self.current_indent = 0
         self.verb_output = ""
         self.label_counter = 0
         self.symbol_file = ""
+        self.data_part = ""
+        self.allocated_count = 0
+        self.var_count = 0
 
     def get_compiled(self, node: AstNode):
         err = self.generate(node)
         self.generated = self.generated.replace(
             "; [VARIABLES]",
-            "\n".join([f"d8 {hex(b)}" for b in self.allocator_bytes])
+            self.data_part
         )
         return self.generated, err
 
@@ -1179,9 +1180,14 @@ class CodeGenerator:
 
     def allocate_variable(self, data: VariableData):
         self.display_compile_process("ALLOCATING VARIABLE" + AstNode.format_as_child(data, True))
-        r = VariableSymbol(data, len(self.allocator_bytes) + OPT_VAR_START_ADDR)
-        self.symbol_file += f"{'VAR':<8} {data.name:<32} -> {hex(len(self.allocator_bytes) + OPT_VAR_START_ADDR)[2:]:0>8}\n"
-        self.allocator_bytes += [0x00 for _ in range(data.size)]
+        r = VariableSymbol(data, self.var_count)
+
+        self.data_part += f"VAR_{data.name}_{self.var_count}:\n"
+        self.data_part += f"    fill {data.size}\n"
+        if not data.name.startswith("__"):
+            self.symbol_file += f"VAR_{data.name}_{self.var_count}\t{data.size} bytes\n"
+        self.var_count += 1
+        
         return r
 
     def append(self, *values: str):
@@ -1260,11 +1266,11 @@ class CodeGenerator:
                         self.append("mov ", hex(symbol.location), " ", hex(reg))
                 else:
                     if symbol.data.size == 1:
-                        self.append("ld8 ", hex(reg), " ", hex(symbol.location))
+                        self.append("ld8 ", hex(reg), " ", f"VAR_{symbol.data.name}_{symbol.location}")
                     if symbol.data.size == 2:
-                        self.append("ld16 ", hex(reg), " ", hex(symbol.location))
+                        self.append("ld16 ", hex(reg), " ", f"VAR_{symbol.data.name}_{symbol.location}")
                     if symbol.data.size == 4:
-                        self.append("ld32 ", hex(reg), " ", hex(symbol.location))
+                        self.append("ld32 ", hex(reg), " ", f"VAR_{symbol.data.name}_{symbol.location}")
         elif isinstance(node, BinOpNone):
             gerr = self.resolve_expr_into_reg(node.left, 0x0d)
             if gerr: return gerr
@@ -1310,18 +1316,87 @@ class CodeGenerator:
             if isinstance(symbol, CompilerError):
                 symbol.position = node.start_pos
                 return symbol
-            self.append("ldi32 ", hex(reg), " ", symbol.location)
+            if not isinstance(symbol, VariableSymbol):
+                return CompilerError(
+                    f"CODE GEN - loc({node.name}) is not a variable.",
+                    node.start_pos)
+            if symbol.register:
+                return CompilerError(
+                    f"CODE GEN - loc({node.name}) can't be taken of a parameter, "
+                    "parameters have no memory address.",
+                    node.start_pos)
+            self.append("ldi32 ", hex(reg), " ",
+                        f"VAR_{symbol.data.name}_{symbol.location}")
         elif isinstance(node, AllocateSpaceNode):
-            space = node.space
+            space = node.space.force_optimize()
 
             if not isinstance(space, LiteralIntNode):
                 return CompilerError("CODE GEN - Expected argument of alc(...) to be LiteralInt.", space.start_pos)
-            
-            self.append("ldi32 ", hex(reg), " ", hex(len(self.allocator_bytes) + OPT_VAR_START_ADDR))
-            self.allocator_bytes += [((node.cells[i].number if isinstance(node.cells[i], LiteralIntNode) else 0x00) if i < len(node.cells) else 0x00) for i in range(space.number)]
+
+            cells = []
+            for c in node.cells:
+                c = c.force_optimize()
+                if not isinstance(c, LiteralIntNode):
+                    return CompilerError(
+                        "CODE GEN - Expected every element of alc(...) to be a constant.",
+                        c.start_pos)
+                if not 0 <= c.number <= 0xFF:
+                    return CompilerError(
+                        f"CODE GEN - alc(...) element {c.number} is outside 0..255.",
+                        c.start_pos)
+                cells.append(c)
+
+            if space.number < len(cells):
+                return CompilerError(
+                    f"CODE GEN - alc(...) asks for {space.number} bytes but "
+                    f"{len(cells)} elements were given.",
+                    space.start_pos)
+
+            self.append("ldi32 ", hex(reg), " ", f"ALC_{self.allocated_count}")
+            self.data_part += f"ALC_{self.allocated_count}:\n"
+
+            # Every escape the assembler knows about, plus plain printable ASCII.
+            # '"' is left out on purpose: the assembler has no '\"' escape.
+            escapes = {
+                0x00: "\\0",
+                0x07: "\\a",
+                0x08: "\\b",
+                0x09: "\\t",
+                0x0a: "\\n",
+                0x0d: "\\r",
+                0x1b: "\\e",
+                0x5c: "\\\\",
+            }
+
+            is_string = True
+
+            for c in cells:
+                if c.number in escapes:
+                    continue
+                if not 0x20 <= c.number < 0x7F or c.number == ord('"'):
+                    is_string = False
+                    break
+
+            if is_string:
+                string = ""
+                for c in cells:
+                    string += escapes.get(c.number, chr(c.number))
+                self.data_part += f"    str \"{string}\"\n"
+            else:
+                for c in cells:
+                    self.data_part += f"    d8 {hex(c.number)}\n"
+
+            # alc(n) without elements still has to reserve n bytes.
+            padding = space.number - len(cells)
+            if padding > 0:
+                self.data_part += f"    fill {padding}\n"
+
+            self.symbol_file += f"ALC_{self.allocated_count}\t{space.number} bytes\n"
+            self.allocated_count += 1
+
         elif isinstance(node, UnaryOpNode):
             self.resolve_expr_into_reg(node.value, reg)
-            self.append(f"{'inc' if node.optok.t == TT_INC else 'dec'} ", hex(reg))
+            self.append(f"{"inc" if node.optok.t == TT_INC else "dec"} ", hex(reg))
         else:
             return CompilerError(f"CODE GEN - AST node {type(node).__name__} can't be an expression.", node.start_pos)
 
@@ -1340,12 +1415,14 @@ class CodeGenerator:
             gerr = self.resolve_expr_into_reg(a, 0x0f)
             if gerr:
                 return gerr
-            self.append("st32 ", hex(0x0f), " ", hex(slot.location))
+            self.append("st32 ", hex(0x0f), " ",
+                        f"VAR_{slot.data.name}_{slot.location}")
             arg_slots.append(slot)
 
         for i, slot in enumerate(arg_slots):
             self.append("push32 ", hex(i + 0x10))
-            self.append("ld32 ", hex(i + 0x10), " ", hex(slot.location))
+            self.append("ld32 ", hex(i + 0x10), " ",
+                        f"VAR_{slot.data.name}_{slot.location}")
 
         self.append("call ", node.name)
 
@@ -1357,17 +1434,18 @@ class CodeGenerator:
     def gen_VariableDeclarationNode(self, node: VariableDeclarationNode):
         allocated = self.allocate_variable(node.data)
         self.append()
-        self.append("; Variable ", repr(node.data.name), " declaration, allocated to ", hex(allocated.location))
+        self.append("; Variable ", repr(node.data.name), " declaration, label ",
+                    f"VAR_{node.data.name}_{allocated.location}")
         self.scope.symbols.append(allocated)
         if node.value is not None:
             gerr = self.resolve_expr_into_reg(node.value, 0x0f)
             if gerr: return gerr
             if allocated.data.size == 1:
-                self.append("st8 ", hex(0x0f), " ", hex(allocated.location))
+                self.append("st8 ", hex(0x0f), " ", f"VAR_{node.data.name}_{allocated.location}")
             if allocated.data.size == 2:
-                self.append("st16 ", hex(0x0f), " ", hex(allocated.location))
+                self.append("st16 ", hex(0x0f), " ", f"VAR_{node.data.name}_{allocated.location}")
             if allocated.data.size == 4:
-                self.append("st32 ", hex(0x0f), " ", hex(allocated.location))
+                self.append("st32 ", hex(0x0f), " ", f"VAR_{node.data.name}_{allocated.location}")
         self.append()
 
     def gen_ReturnStatementNode(self, node: ReturnStatementNode):
@@ -1387,15 +1465,15 @@ class CodeGenerator:
                 if symbol.data.size == 1:
                     self.append("st8 ",
                         hex(0x0f), " ",
-                        hex(symbol.location))
+                        f"VAR_{symbol.data.name}_{symbol.location}")
                 if symbol.data.size == 2:
                     self.append("st16 ",
                         hex(0x0f), " ",
-                        hex(symbol.location))
+                        f"VAR_{symbol.data.name}_{symbol.location}")
                 if symbol.data.size == 4:
                     self.append("st32 ",
                         hex(0x0f), " ",
-                        hex(symbol.location))
+                        f"VAR_{symbol.data.name}_{symbol.location}")
     
     def gen_IfStatementNode(self, node: IfStatementNode):
         self.label_counter += 1
@@ -1506,7 +1584,7 @@ if __name__ == "__main__":
         else:
             input_files.append(a)
 
-    print(f"\nInput files: {', '.join(input_files)}")
+    print(f"\nInput files: {", ".join(input_files)}")
     print(f"Output file: {output_file}")
     print(f"Symbol file: {symbol_file}\n")
 

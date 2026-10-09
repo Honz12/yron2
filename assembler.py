@@ -252,6 +252,8 @@ class Lexer:
                         chars += "\t"
                     case "r":
                         chars += "\r"
+                    case "b":
+                        chars += "\b"
                     case "a":
                         chars += "\a"
                     case "e":
@@ -281,6 +283,7 @@ class Lexer:
                 "\\": ord("\\"),
                 "n": ord("\n"),
                 "t": ord("\t"),
+                "b": ord("\b"),
                 "a": ord("\a"),
                 "e": ord("\x1b"),
                 "0": 0,
