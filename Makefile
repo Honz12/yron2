@@ -16,8 +16,8 @@ build/:
 
 os: cbuild/rom.bin
 
-cbuild/kernel.bin: os/kernel.yr2 cbuild/
-	$(PYTHON) assembler.py os/kernel.yr2 -o cbuild/kernel.bin
+cbuild/kernel.bin: os/kernel/core.yr2 cbuild/ os/kernel/alloc_driver.yc os/kernel/fs_driver.yc os/kernel/common.yr2 os/kernel/common.yc 
+	$(PYTHON) assembler.py os/kernel/core.yr2 -o cbuild/kernel.bin
 	$(PYTHON) disassembler.py cbuild/kernel.bin -o test_KERNEL.BIN_dec.yr2
 
 cbuild/main.bin: cbuild/main.yr2 os/corelinks.yr2 cbuild/

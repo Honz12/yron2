@@ -1,0 +1,13 @@
+func streq(u32 s1, u32 s2) {
+    while (1) {
+        if (
+            res8(s1) !=
+            res8(s2)
+        ) return 0;
+
+        if (res8(s1) == 0) return 1;
+
+        s1 = ++s1;
+        s2 = ++s2;
+    }
+}

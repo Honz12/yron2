@@ -4,6 +4,7 @@ from sys import exit
 import shutil
 
 OPT_USE_ASCII = False
+OPT_EMIT_RAW = False
 
 ASCII_LINES = "||`-"
 UTF_LINES = "│├╰─"
@@ -1227,10 +1228,12 @@ jmp {PROGRAM_ENTRY_FUNCTION}
 
 """
 
+RAW_NEEDED_CODE = "; [VARIABLES]\n"
+
 class CodeGenerator:
     def __init__(self):
         self.scope = Scope([])
-        self.generated = NEEDED_CODE
+        self.generated = RAW_NEEDED_CODE if OPT_EMIT_RAW else NEEDED_CODE
         self.current_indent = 0
         self.verb_output = ""
         self.label_counter = 0
@@ -1640,10 +1643,6 @@ if __name__ == "__main__":
             symbol_file = a
             multi_arg_mode = ""
 
-        elif multi_arg_mode == "--var-start-addr":
-            OPT_VAR_START_ADDR = int(a, 0)
-            multi_arg_mode = ""
-
         elif a == "-o":
             multi_arg_mode = "-o"
 
@@ -1662,8 +1661,8 @@ if __name__ == "__main__":
         elif a == "--include-std-code":
             multi_arg_mode = "--include-std-code"
 
-        elif a == "--var-start-addr":
-            multi_arg_mode = "--var-start-addr"
+        elif a == "-r":
+            OPT_EMIT_RAW = True
 
         elif a == "-v":
             verbose = True
@@ -1749,7 +1748,10 @@ if __name__ == "__main__":
         with open(symbol_file, "w") as f:
             f.write(code_gen.symbol_file)
 
-def get_compiled(code: str, filename: str):
+def get_compiled(code: str, filename: str, emit_raw: bool = False):
+    global OPT_EMIT_RAW
+    OPT_EMIT_RAW = emit_raw
+    
     lexer = Lexer(code, filename)
     tokens = lexer.get_tokens()
 

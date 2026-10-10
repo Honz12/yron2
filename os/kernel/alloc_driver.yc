@@ -1,0 +1,137 @@
+u32 allocator_first_free;
+
+/*
+    Design:
+        The heap is a singly linked list of free sections, the head of that
+        list is kept in the 'allocator_first_free' variable.
+
+        Every free section holds the following structure:
+
+            offset  0 - uint32_t size               - total size of this section
+            offset 32 - uint32_t next_free_section  - next free section (0 = end of list)
+
+        The 'next_free_section' pointer lives 32 bytes into the section and not
+        right behind the 'size' field, this way the header of a section can never
+        be clobbered by a split made out of it (64 is the minimum alloc size).
+
+        A free section is therefore always at least 64 bytes big, which is the
+        least amount of bytes able to hold an allocation together with the
+        header of the leftover section.
+
+    NOTE:
+        wrt32(<value>, <address>) stores <value> at <address>,
+        this argument order comes from the 'stp32 <reg> <addr_reg>'
+        instruction that 'wrt32' itself is made of.
+*/
+
+func alloc_get_free_section_size(u32 free_section_start) {
+    return res32(free_section_start);
+}
+
+func alloc_set_free_section_size(u32 free_section_start, u32 size) {
+    wrt32(size, free_section_start);
+}
+
+func alloc_get_next_free_section(u32 free_section_start) {
+    return res32(free_section_start + 32);
+}
+
+func alloc_set_next_free_section(u32 free_section_start, u32 next_free_section) {
+    wrt32(next_free_section, free_section_start + 32);
+}
+
+/* Turns everything from 'heap_absolute_start' up to the top of the RAM
+    into one single free section. */
+func alloc_setup(u32 heap_absolute_start) {
+    u32 section = heap_absolute_start;
+
+    allocator_first_free = section;
+
+    alloc_set_free_section_size(section, 64 * 1024 * 1024 - heap_absolute_start);
+    alloc_set_next_free_section(section, 0);
+}
+
+/* Allocates 'size' bytes of memory.
+    RETURNS: pointer to the allocated memory, 0 when out of memory. */
+func malloc(u32 alloc_size) {
+    if (alloc_size < 64) {
+        puts("Invalid malloc(...) call:\n\tminimum alloc size is 64,\n\tgot ");
+        putu(alloc_size);
+        puts(" expanding to 64.\nAny to continue ...\n");
+        getc();
+        alloc_size = 64;
+    }
+
+    if (allocator_first_free == 0) {
+        puts("Failed to malloc size ");
+        putu(alloc_size);
+        puts(", the heap has no free section.\nAny to continue ...\n");
+        getc();
+        return 0;
+    }
+
+    u32 pointer_allocated = allocator_first_free;
+    u32 prev_free_pointer = 0;
+    u32 available_free_size = alloc_get_free_section_size(pointer_allocated);
+
+    while (available_free_size < alloc_size + 64) {
+        /* Remember the section we are leaving, it has to point
+            to the new one once the found section gets split. */
+        prev_free_pointer = pointer_allocated;
+        pointer_allocated = alloc_get_next_free_section(pointer_allocated);
+
+        /* Test for the end of the list before dereferencing it */
+        if (pointer_allocated == 0) {
+            puts("Failed to malloc size ");
+            putu(alloc_size);
+            puts(", out of memory.\nAny to continue ...\n");
+            getc();
+            return 0;
+        }
+
+        available_free_size = alloc_get_free_section_size(pointer_allocated);
+    }
+
+    u32 next_free_pointer = alloc_get_next_free_section(pointer_allocated);
+    u32 allocated_pointer = pointer_allocated;
+
+    /* Split the found section, its tail becomes the new free section */
+
+    pointer_allocated = pointer_allocated + alloc_size;
+
+    alloc_set_free_section_size(pointer_allocated, available_free_size - alloc_size);
+    alloc_set_next_free_section(pointer_allocated, next_free_pointer);
+
+    /* And link the new free section into the list */
+
+    if (prev_free_pointer != 0)
+        alloc_set_next_free_section(prev_free_pointer, pointer_allocated);
+    else
+        allocator_first_free = pointer_allocated;
+
+    return allocated_pointer;
+}
+
+/* Returns 'size' bytes of memory located at 'pointer' back into the heap.
+    'size' has to be the very same amount of bytes that was
+    requested from malloc(...) for that pointer. */
+func mfree(u32 freed_pointer, u32 freed_size) {
+    if (freed_pointer == 0) {
+        return 0;
+    }
+
+    if (freed_size < 64) {
+        puts("Invalid mfree(...) call:\n\tminimum free size is 64,\n\tgot ");
+        putu(freed_size);
+        puts(" expanding to 64.\nAny to continue ...\n");
+        getc();
+        freed_size = 64;
+    }
+
+    /* Push the freed section to the head of the free list */
+
+    alloc_set_free_section_size(freed_pointer, freed_size);
+    alloc_set_next_free_section(freed_pointer, allocator_first_free);
+
+    allocator_first_free = freed_pointer;
+}

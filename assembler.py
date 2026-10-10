@@ -327,7 +327,7 @@ class CodeGenerator:
     def int_to_4bytes(i: int):
         return [i % 256, (i >> 8) % 256, (i >> 16) % 256, (i >> 24) % 256]
 
-    def get_bytes(self, offset: int = 0):
+    def get_bytes(self, offset: int = 0, names: dict[str, int] = None):
         @dataclass
         class ValuePostReplacement:
             address: int
@@ -335,7 +335,8 @@ class CodeGenerator:
             name: str
 
         out: list[int] = [0 for _ in range(offset)]
-        names: dict[str, int] = {}
+        if names is None:
+            names = {}
         current_label_scope = ""
         value_post_replacements: list[ValuePostReplacement] = []
 
@@ -495,7 +496,7 @@ class CodeGenerator:
                         if tokens is None:
                             return
                         code_gen = CodeGenerator(tokens, self.verbose)
-                        cout = code_gen.get_bytes(len(out))
+                        cout = code_gen.get_bytes(len(out), names)
 
                         if cout is None:
                             return
@@ -524,14 +525,16 @@ class CodeGenerator:
 
                 if self.t.t == TT_STRING:
                     with open(self.t.v, "r") as f:
-                        asm = get_compiled(f.read(), self.t.v)
+                        asm = get_compiled(f.read(), self.t.v, True)
+                        with open(f"test_insc_{self.t.v.replace("/", "_")}.yr2", "w") as asm_file:
+                            asm_file.write(asm)
 
                         lexer = Lexer(asm, self.verbose)
                         tokens = lexer.get_tokens()
                         if tokens is None:
                             return
                         code_gen = CodeGenerator(tokens, self.verbose)
-                        cout = code_gen.get_bytes(len(out))
+                        cout = code_gen.get_bytes(len(out), names)
 
                         if cout is None:
                             return

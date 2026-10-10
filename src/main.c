@@ -24,11 +24,12 @@ bool g_plain_mode = false;
 
 
 #define NUM_REGS 32
+
 #define REG_PC 0
 #define REG_SP 1
 #define REG_MS 2
-#define INT_TABLE_START (uint32_t)1024
-#define INT_TABLE_SIZE (uint32_t)256 // 256 * 4 = 1024
+#define REG_INTV 3
+
 #define INT_GEN_ERR 0x00
 #define INT_INV_RAM_ADDR_ERR 0x01
 
@@ -598,14 +599,12 @@ int cpu_make_interrupt(CpuData *cpu_data, uint8_t value) {
 
     cpu_data->regs[REG_MS] = 0;
 
-    if (value < INT_TABLE_SIZE) {
-        uint32_t int_field_start = INT_TABLE_START + value * 4;
-        uint32_t int_address = cpu_get_ram(cpu_data, int_field_start) |
-        (cpu_get_ram(cpu_data, int_field_start + 1) << 8) |
-        (cpu_get_ram(cpu_data, int_field_start + 2) << 16) | ((uint32_t)cpu_get_ram(cpu_data, int_field_start + 3) << 24);
+    uint32_t int_field_start = cpu_data->regs[REG_INTV] + value * 4;
+    uint32_t int_address = cpu_get_ram(cpu_data, int_field_start) |
+    (cpu_get_ram(cpu_data, int_field_start + 1) << 8) |
+    (cpu_get_ram(cpu_data, int_field_start + 2) << 16) | ((uint32_t)cpu_get_ram(cpu_data, int_field_start + 3) << 24);
 
-        cpu_data->regs[REG_PC] = int_address;
-    }
+    cpu_data->regs[REG_PC] = int_address;
 
     return 0;
 }

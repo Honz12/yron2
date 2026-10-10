@@ -1,6 +1,7 @@
 ldi32 0x01 0xffff               ; initialize stack pointer
+ldi32 0x03 __ivt                ; initialize IVT pointer
 
-ldi16 0x10 0x800
+ldi16 0x10 __end_of_kernel
 ldi8 0x11 0x0
 
 ljmp 0x10 0x11
@@ -58,45 +59,93 @@ ram_inv_addr_error_handler:
 syscall_int:
     push32 0x0e
 
-    ldi8 0x0e 0 ; PUTC
+    ldi8 0x0e 0                             ; PUTC
     eq 0x0e 0x0f 0x0e
     jnz .putc 0x0e
-    
-    ldi8 0x0e 1 ; PUTS
+
+    ldi8 0x0e 1                             ; PUTS
     eq 0x0e 0x0f 0x0e
     jnz .puts 0x0e
-    
-    ldi8 0x0e 2 ; PUTU
+
+    ldi8 0x0e 2                             ; PUTU
     eq 0x0e 0x0f 0x0e
     jnz .putu 0x0e
-    
-    ldi8 0x0e 3 ; GETC
+
+    ldi8 0x0e 3                             ; GETC
     eq 0x0e 0x0f 0x0e
     jnz .getc 0x0e
-    
-    ldi8 0x0e 4 ; DISK_READ
+
+    ldi8 0x0e 4                             ; DISK_READ
     eq 0x0e 0x0f 0x0e
     jnz .disk_read 0x0e
-    
-    ldi8 0x0e 5 ; DISK_WRITE
+
+    ldi8 0x0e 5                             ; DISK_WRITE
     eq 0x0e 0x0f 0x0e
     jnz .disk_write 0x0e
-    
-    ldi8 0x0e 6 ; DISK_SEEK
+
+    ldi8 0x0e 6                             ; DISK_SEEK
     eq 0x0e 0x0f 0x0e
     jnz .disk_seek 0x0e
-    
-    ldi8 0x0e 7 ; SET_PROCESS_RET
+
+    ldi8 0x0e 7                             ; SET_PROCESS_RET
     eq 0x0e 0x0f 0x0e
     jnz .set_process_ret 0x0e
-    
-    ldi8 0x0e 8 ; SET_UP_EXIT_CODE
+
+    ldi8 0x0e 8                             ; SET_UP_EXIT_CODE
     eq 0x0e 0x0f 0x0e
     jnz .set_up_exit_code 0x0e
-    
-    ldi8 0x0e 9 ; GET_UP_EXIT_CODE
+
+    ldi8 0x0e 9                             ; GET_UP_EXIT_CODE
     eq 0x0e 0x0f 0x0e
     jnz .get_up_exit_code 0x0e
+
+    ldi8 0x0e 10                            ; ALLOC_MALLOC
+    eq 0x0e 0x0f 0x0e
+    jnz .malloc 0x0e
+
+    ldi8 0x0e 11                            ; ALLOC_MFREE
+    eq 0x0e 0x0f 0x0e
+    jnz .mfree 0x0e
+
+    ldi8 0x0e 12                            ; FS_ANALYZE_DISK
+    eq 0x0e 0x0f 0x0e
+    jnz .fs_analyze_disk 0x0e
+
+    ldi8 0x0e 13                            ; FS_RESEASE_DIR_ROOT
+    eq 0x0e 0x0f 0x0e
+    jnz .fs_release_dir_root 0x0e
+
+    ldi8 0x0e 14                            ; FS_GET_CONTINUING_SECTION
+    eq 0x0e 0x0f 0x0e
+    jnz .fs_get_continuing_section 0x0e
+
+    ldi8 0x0e 15                            ; FS_GET_FILE_OCCUPYING
+    eq 0x0e 0x0f 0x0e
+    jnz .fs_get_file_occupying 0x0e
+
+    ldi8 0x0e 16                            ; FS_READ_FILE_POINTER
+    eq 0x0e 0x0f 0x0e
+    jnz .fs_read_file_pointer 0x0e
+
+    ldi8 0x0e 17                            ; FS_LIST_DIR_ROOT_FILES
+    eq 0x0e 0x0f 0x0e
+    jnz .fs_list_dir_root_files 0x0e
+
+    ldi8 0x0e 18                            ; fs_find_file_entry_idx
+    eq 0x0e 0x0f 0x0e
+    jnz .fs_find_file_entry_idx 0x0e
+
+    ldi8 0x0e 19                            ; fs_find_file_pointer
+    eq 0x0e 0x0f 0x0e
+    jnz .fs_find_file_pointer 0x0e
+
+    ldi8 0x0e 20                            ; fs_find_file_size
+    eq 0x0e 0x0f 0x0e
+    jnz .fs_find_file_size 0x0e
+
+    ldi8 0x0e 21                            ; alloc_setup
+    eq 0x0e 0x0f 0x0e
+    jnz .alloc_setup 0x0e
 .end:
     pop32 0x0e
     iret
@@ -129,6 +178,42 @@ syscall_int:
     jmp .end
 .get_up_exit_code:
     call get_up_exit_code
+    jmp .end
+.malloc:
+    call malloc
+    jmp .end
+.mfree:
+    call mfree
+    jmp .end
+.fs_analyze_disk:
+    call fs_analyze_disk
+    jmp .end
+.fs_release_dir_root:
+    call fs_release_dir_root
+    jmp .end
+.fs_get_continuing_section:
+    call fs_get_continuing_section
+    jmp .end
+.fs_get_file_occupying:
+    call fs_get_file_occupying
+    jmp .end
+.fs_read_file_pointer:
+    call fs_read_file_pointer
+    jmp .end
+.fs_list_dir_root_files:
+    call fs_list_dir_root_files
+    jmp .end
+.fs_find_file_entry_idx:
+    call fs_find_file_entry_idx
+    jmp .end
+.fs_find_file_pointer:
+    call fs_find_file_pointer
+    jmp .end
+.fs_find_file_size:
+    call fs_find_file_size
+    jmp .end
+.alloc_setup:
+    call alloc_setup
     jmp .end
 
 ; KERNEL FUNCTIONS
@@ -256,15 +341,15 @@ puts:
     push32 0x13
 .loop:
     ldp8 0x11 0x10          ; load byte at [0x10] into 0x11
-    ldi8 0x12 0x00          
-    
+    ldi8 0x12 0x00
+
     eq 0x11 0x12 0x13       ; test if byte == 0x00
     jnz .end 0x13       ; exit loop if null terminator found
 
-    push32 0x10             
+    push32 0x10
     mov 0x11 0x10           ; move character parameter to 0x10
     call putc
-    pop32 0x10              
+    pop32 0x10
 
     inc 0x10                ; point to next character
     jmp .loop
@@ -327,7 +412,7 @@ putu:
     pop32 0x10              ; Pop ASCII character into 0x10 parameter
     call putc
     dec 0x13
-    
+
     ldi8 0x11 0x00
     eq 0x13 0x11 0x11
     jz .print_loop 0x11     ; Loop until all digits printed
@@ -434,15 +519,35 @@ get_up_exit_code:
 
 ; IVT
 
-; ----------------------------------------------------------------------------------------
-org 0x0400
+__ivt:
 
 d32 generic_error_interrupt_handler             ; 0x00 - Generic Error Interrupt
 d32 ram_inv_addr_error_handler                  ; 0x01 - RAM Invalid Address Error
 
-org 0x0440                                      ; Non error interrupts
+d32 0 ; 0x02
+d32 0 ; 0x03
+d32 0 ; 0x04
+d32 0 ; 0x05
+d32 0 ; 0x06
+d32 0 ; 0x07
+d32 0 ; 0x08
+d32 0 ; 0x09
+d32 0 ; 0x0a
+d32 0 ; 0x0b
+d32 0 ; 0x0c
+d32 0 ; 0x0d
+d32 0 ; 0x0e
+d32 0 ; 0x0f
 
 d32 halt                ; 0x10
 d32 syscall_int         ; 0x11
 
-org 0x0800
+fill 952 ; rest
+
+ins "os/kernel/common.yr2"
+insc "os/kernel/common.yc"
+
+insc "os/kernel/alloc_driver.yc"
+insc "os/kernel/fs_driver.yc"
+
+__end_of_kernel:
