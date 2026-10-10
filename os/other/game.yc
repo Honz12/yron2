@@ -1,8 +1,53 @@
+/* ===========================================================================================
+                                        MEMORY DISPLAY
+=========================================================================================== */
+
+/* Puts a single byte onto the screen in %08x format. */
+func putb(u8 byte) {
+    puth(byte / 16);
+    puth(byte % 16);
+}
+
+/* Dumps a 32 unsigned integer in the %08x format. */
+func dumph32(u32 v) {
+    putb(v / 16777216);
+    putb(v / 65536 % 256);
+    putb(v / 256 % 256);
+    putb(v % 256);
+}
+
+/* Displays a hex dump of a section of RAM. */
+func dump_mem(u32 pointer, u32 num_bytes, u32 per_line) {
+    u32 pos = 0;
+    termf((0x0f * 16) | 4);
+    puts("00000000 ");
+    termf(2);
+    while (num_bytes > 0) {
+        putb(res8(pointer));
+        putc(' ');
+        num_bytes = --num_bytes;
+        pointer = ++pointer;
+        pos = ++pos;
+        if (pos % per_line == 0) {
+            putc('\n');
+            termf((0x0f * 16) | 4);
+            dumph32(pos);
+            putc(' ');
+            termf(2);
+        }
+    }
+    termf(0);
+    putc('\n');
+}
+
 u32 tick;
 u8 input;
 
 u8 player_x;
 u8 player_y;
+
+u8 map_size;
+u32 map;
 
 func redraw() {
     term_clear();
@@ -12,22 +57,26 @@ func redraw() {
     putu(tick);
     putc('\n');
 
-    while (y < 10) {
+    termf(0);
+
+    /*while (y < map_size) {
         u8 x = 0;
-        while (x < 10) {
+        while (x < map_size) {
             if ((player_x == x) & (player_y == y)) {
+                termf(0x0b * 16);
                 putc('@');
+                termf(0);
             }
             else {
-                putc('.');
+                putu(res8(map + x + y * map_size) == 1);
             }
             x = ++x;
         }
         putc('\n');
         y = ++y;
-    }
+    }*/
 
-    putc(input);
+    dump_mem(map, map_size * map_size, map_size);
 }
 
 func tick() {
@@ -47,11 +96,11 @@ func tick() {
         player_y = --player_y;
     }
 
-    if ((input == 'd') & (player_x < 9)) {
+    if ((input == 'd') & (player_x < map_size - 1)) {
         player_x = ++player_x;
     }
 
-    if ((input == 's') & (player_y < 9)) {
+    if ((input == 's') & (player_y < map_size - 1)) {
         player_y = ++player_y;
     }
 
@@ -60,7 +109,42 @@ func tick() {
     return 0;
 }
 
+func setup_level() {
+    player_x = map_size / 2;
+    player_y = map_size / 2;
+
+    u8 y = 0;
+
+    while (y < map_size) {
+        u8 x = 0;
+        while (x < map_size) {
+            if (
+                (0 == x) | (0 == y) | (map_size - 1 == x) | (map_size - 1 == y)
+            ) {
+                wrt8(map + x + y * map_size, 1);
+                dumph32(map + __get_MS() + x + y * map_size);
+                putc(' ');
+            }
+            else {
+                wrt8(map + x + y * map_size, 0);
+            }
+            x = ++x;
+        }
+        putc('\n');
+        y = ++y;
+    }
+
+    getc();
+}
+
 func main() {
+    map_size = 8;
+    map = malloc(map_size * map_size);
+
+    dumph32(map + __get_MS());
+
+    setup_level();
+
     tick = 0;
 
     u8 running = 1;
@@ -70,7 +154,10 @@ func main() {
 
         if (code == 1) {
             running = 0;
-            term_clear();
         }
     }
+
+    term_clear();
+    mfree(map, map_size * map_size);
+    puts("Goodbye!\n");
 }
