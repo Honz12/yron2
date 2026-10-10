@@ -36,6 +36,10 @@ cbuild/other/: cbuild/
 cbuild/other/testapp.bin: cbuild/other/ os/other/testapp.yr2 os/corelinks.yr2
 	$(PYTHON) assembler.py os/other/testapp.yr2 os/corelinks.yr2 -o cbuild/other/testapp.bin
 
+cbuild/other/game.bin: cbuild/other/ os/other/game.yc os/corelinks.yr2
+	$(PYTHON) compiler.py os/other/game.yc -o cbuild/other/game.yr2 -s test_GAME.YC_sym.txt
+	$(PYTHON) assembler.py cbuild/other/game.yr2 os/corelinks.yr2 -o cbuild/other/game.bin
+
 cbuild/:
 	mkdir cbuild
 
@@ -57,12 +61,13 @@ clean:
 rm_cb:
 	rm cbuild/ -fr
 
-disk.bin: os/other/SH_HELP_text.txt cbuild/other/testapp.bin
+disk.bin: os/other/SH_HELP_text.txt cbuild/other/testapp.bin cbuild/other/game.bin
 	$(PYTHON) disk_maker.py disk.bin new 65536
 	$(PYTHON) fs_maker.py disk.bin format "FungOS"
 
 	$(PYTHON) fs_maker.py disk.bin fhost os/other/SH_HELP_text.txt .SH_HELP
 	$(PYTHON) fs_maker.py disk.bin fhost cbuild/other/testapp.bin testapp
+	$(PYTHON) fs_maker.py disk.bin fhost cbuild/other/game.bin game
 
 fs_shell: disk.bin
 	$(PYTHON) fs_maker.py disk.bin

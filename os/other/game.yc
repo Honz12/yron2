@@ -1,0 +1,76 @@
+u32 tick;
+u8 input;
+
+u8 player_x;
+u8 player_y;
+
+func redraw() {
+    term_clear();
+
+    u8 y = 0;
+
+    putu(tick);
+    putc('\n');
+
+    while (y < 10) {
+        u8 x = 0;
+        while (x < 10) {
+            if ((player_x == x) & (player_y == y)) {
+                putc('@');
+            }
+            else {
+                putc('.');
+            }
+            x = ++x;
+        }
+        putc('\n');
+        y = ++y;
+    }
+
+    putc(input);
+}
+
+func tick() {
+    redraw();
+
+    input = getc();
+
+    if (input == 'q') {
+        return 1;
+    }
+
+    if ((input == 'a') & (player_x > 0)) {
+        player_x = --player_x;
+    }
+
+    if ((input == 'w') & (player_y > 0)) {
+        player_y = --player_y;
+    }
+
+    if ((input == 'd') & (player_x < 9)) {
+        player_x = ++player_x;
+    }
+
+    if ((input == 's') & (player_y < 9)) {
+        player_y = ++player_y;
+    }
+
+    tick = ++tick;
+
+    return 0;
+}
+
+func main() {
+    tick = 0;
+
+    u8 running = 1;
+
+    while (running) {
+        u8 code = tick();
+
+        if (code == 1) {
+            running = 0;
+            term_clear();
+        }
+    }
+}
